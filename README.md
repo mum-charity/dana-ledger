@@ -18,13 +18,13 @@ The interface is Simplified Chinese with large text, and amounts are in RM (you 
 
 Last checked on 19 Nov 2026.
 
-https://mum.franklee.asia/ runs version 2.0.0, deployed from the `dev` branch on 19 Nov 2026. It is the 1.5.0 app rebuilt with Next.js and React, plus a desktop layout and without the demo. **It was checked in desktop Chrome at a phone's size, not yet on a real phone.**
+https://mum.franklee.asia/ runs version 2.0.1, deployed from the `dev` branch on 19 Nov 2026. It is the 1.5.0 app rebuilt with Next.js and React, plus a desktop layout and without the demo. **It was checked in desktop Chrome at a phone's size, not yet on a real phone.**
 
 | Copy | Version | Backup |
 |---|---|---|
-| https://mum.franklee.asia/ | 2.0.0 | Automatic, to the family's backup server |
+| https://mum.franklee.asia/ | 2.0.1 | Automatic, to the family's backup server |
 | GitHub Pages | 1.1.1 | Manual backup file |
-| Branch `dev` | 2.0.1 (2.0.0 with backup messages that no longer mention a server at home; not yet deployed) | Automatic |
+| Branch `dev` | 2.0.1 | Automatic |
 | Branch `main` | 1.1.1 | Manual backup file |
 
 To go back to 1.5.0: `npx wrangler@4.158.0 rollback cff2a828-edf0-41cd-81eb-416fa8cb617a`. The tag `pi-server-as-installed` keeps 1.6.0 with the backup server's files exactly as they were installed on the Pi.
@@ -44,7 +44,7 @@ Still to do:
 - Find where 1.5.0 was deployed from. The live app went from 1.4.0 to 1.5.0 on 7–8 Nov from a copy outside this repo, and another deploy from there would replace anything deployed from here.
 - The backup server's log shows only two small test backups, on 7 and 8 Nov, and none since. Uploading works, but check that her real book arrives once she is using the app.
 - The Pi still runs the server as it was set up on 7 Nov. `server/` in this branch is split into more files and reads the rules from `lib/model.js`; `sudo bash server/pi-setup.sh` installs that layout. This has not been run on the Pi.
-- Backups moved from the Pi to AWS (an S3 bucket) on 19 Nov: the app's backup address now points at the server in [server/aws/](server/aws/README.md). The Pi's backup service is still running but unused; stop it once a real backup from mum's phone has been seen on AWS.
+- Backups moved from the Pi to AWS (an S3 bucket) on 19 Nov: the app's backup address now points at the server in [server/aws/](server/aws/README.md). The Pi's backup service is still running but unused; stopping it is [issue #8](https://github.com/mum-charity/dana-ledger/issues/8).
 - Decide what happens to GitHub Pages. **Don't merge this branch into `main` until then:** `main` is what GitHub Pages serves, and it would stop working.
 
 ## Where the data lives
