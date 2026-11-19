@@ -106,8 +106,8 @@ export function setCurrency(value) {
 }
 
 // ================================================================ backup server
-// Every change is also sent, by itself, to the backup server on the home Raspberry Pi whenever
-// there is signal. There is nothing to set up: each phone backs up into its own folder there,
+// Every change is also sent, by itself, to the family's backup server (server/ in this repo)
+// whenever there is signal. There is nothing to set up: each phone backs up into its own folder there,
 // named by a random id made the first time the app runs. Anyone can send a backup, but reading
 // one back needs the family's key, which never comes to the phone.
 let SERVER = '';
@@ -202,14 +202,14 @@ function daysSince(ts) {
   return ts ? Math.floor((Date.now() - ts) / 86400000) : Infinity;
 }
 
-/** The warning for the home screen, or null. Only when changes have not reached the Pi for a long time, so someone notices. */
+/** The warning for the home screen, or null. Only when changes have not reached the backup server for a long time, so someone notices. */
 export function backupWarning() {
   const st = S.state.settings;
   const ss = serverStatus();
   if (backupOff || !S.state.funds.length || !lsGet(KEY_PENDING) || ss.ok !== false) return null;
   const last = ss.lastOkAt || st.lastBackupAt;
   if (last ? daysSince(last) < BACKUP_NAG_DAYS : (st.changesSinceBackup || 0) < 30) return null;
-  return last ? `已经 ${daysSince(last)} 天没能备份到家里的服务器` : '还没能备份到家里的服务器';
+  return last ? `已经 ${daysSince(last)} 天没能自动备份` : '还没能自动备份';
 }
 
 // ================================================================ helpers

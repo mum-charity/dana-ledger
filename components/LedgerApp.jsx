@@ -152,7 +152,7 @@ function HomeView() {
         {!S.storageOK && <div className="banner banner-danger">⚠ 这个浏览器无法保存记录。请用 Chrome 或 Safari 的正常模式打开（不要用无痕模式）。</div>}
         {warning && (
           <div className="banner banner-warn" role="status">
-            <span className="banner-text"><strong>{warning}</strong><span>新的记录现在只在这部手机里。请连上网络（例如家里的 Wi-Fi）再打开善款簿，它会自动备份。</span></span>
+            <span className="banner-text"><strong>{warning}</strong><span>新的记录现在只在这部手机里。请连上网络（例如 Wi-Fi）再打开善款簿，它会自动备份。</span></span>
           </div>
         )}
         {canOfferInstall() && <button className="btn btn-secondary btn-block" data-action="install" onClick={doInstall}>添加到手机主屏幕</button>}
@@ -535,7 +535,7 @@ function SettingsView() {
 
 /**
  * For the family, not for mum: how a backup file gets onto a new phone, and whether backups are
- * reaching the Pi. Five taps on the version line in 设置 open it, because on iPhone a link
+ * reaching the backup server. Five taps on the version line in 设置 open it, because on iPhone a link
  * opens in Safari, never inside the installed app. #/restore also works.
  */
 function RestoreView() {
@@ -544,16 +544,16 @@ function RestoreView() {
   const when = (t) => new Date(t).toLocaleString('zh-CN');
   const ss = serverStatus();
   let autoState;
-  if (ss.ok) autoState = `已自动备份到家里的服务器：${when(ss.at)}`;
-  else if (ss.at) autoState = <>{`⚠ 这次没能备份到家里的服务器（${ss.error}），有网络时会自动再试。`}{ss.lastOkAt ? <><br />{`上次成功：${when(ss.lastOkAt)}`}</> : null}</>;
-  else autoState = '还没有备份到家里的服务器。';
+  if (ss.ok) autoState = `已自动备份：${when(ss.at)}`;
+  else if (ss.at) autoState = <>{`⚠ 这次没能自动备份（${ss.error}），有网络时会自动再试。`}{ss.lastOkAt ? <><br />{`上次成功：${when(ss.lastOkAt)}`}</> : null}</>;
+  else autoState = '还没有自动备份。';
   return (
     <>
       <Topbar title="恢复记录" back />
       <main className="page">
         <section className="card">
           <p className="muted">{autoState}</p>
-          <p>用从家里服务器取得的备份文件，取代这部手机现在的记录。</p>
+          <p>用家人给的备份文件，取代这部手机现在的记录。</p>
           <button className="btn btn-ghost btn-block" data-action="restore" onClick={() => document.getElementById('restore-file').click()}>从备份文件恢复</button>
           <p className="hint">{`这部手机现在有：${counts}`}</p>
         </section>
