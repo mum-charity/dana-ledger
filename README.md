@@ -24,7 +24,7 @@ https://mum.franklee.asia/ runs version 2.0.0, deployed from the `dev` branch on
 |---|---|---|
 | https://mum.franklee.asia/ | 2.0.0 | Automatic, to the family's backup server |
 | GitHub Pages | 1.1.1 | Manual backup file |
-| Branch `dev` | 2.0.0 | Automatic |
+| Branch `dev` | 2.0.1 (2.0.0 with backup messages that no longer mention a server at home; not yet deployed) | Automatic |
 | Branch `main` | 1.1.1 | Manual backup file |
 
 To go back to 1.5.0: `npx wrangler@4.158.0 rollback cff2a828-edf0-41cd-81eb-416fa8cb617a`. The tag `pi-server-as-installed` keeps 1.6.0 with the backup server's files exactly as they were installed on the Pi.
@@ -45,21 +45,18 @@ Still to do:
 - The backup server's log shows only two small test backups, on 7 and 8 Nov, and none since. Uploading works, but check that her real book arrives once she is using the app.
 - The Pi still runs the server as it was set up on 7 Nov. `server/` in this branch is split into more files and reads the rules from `lib/model.js`; `sudo bash server/pi-setup.sh` installs that layout. This has not been run on the Pi.
 - Backups moved from the Pi to AWS (an S3 bucket) on 19 Nov: the app's backup address now points at the server in [server/aws/](server/aws/README.md). The Pi's backup service is still running but unused; stop it once a real backup from mum's phone has been seen on AWS.
-- Once backups are on AWS, the app's messages that say 家里的服务器 (the server at home) will be wrong and need rewording.
-- Update the rest of this README for automatic backup. The sections below still mention 保存备份文件.
 - Decide what happens to GitHub Pages. **Don't merge this branch into `main` until then:** `main` is what GitHub Pages serves, and it would stop working.
 
 ## Where the data lives
 
-This section describes 1.1.1. Every version since 1.4.0 also sends records to the backup server. See [Current status](#current-status).
-
-Records are stored **only on the phone**, in the browser's localStorage for this site. Nothing is sent anywhere. The hosted site only serves the app's code.
+Records are kept on the phone, in the browser's storage for this site. Whenever there is signal, the app also sends a copy by itself to the family's backup server, which keeps every version in a private S3 bucket on AWS (see [server/aws/README.md](server/aws/README.md)). There is nothing for her to tap or set up.
 
 This means:
 
-- If the browser data is cleared or the phone is lost, the records are lost unless there is a backup.
-- The app shows a reminder when it hasn't been backed up for 14 days. Encourage her to tap **保存备份文件** and send the file to you on WhatsApp.
-- To move to a new phone, install the app there, then open **设置 → 从备份文件恢复**.
+- If the phone is lost or its browser data is cleared, the records can be restored from the last backup. Anything entered since then, while there was no signal, is lost.
+- The app warns on its home screen only when backups have been failing for 14 days, or 30 changes have never been backed up.
+- To put a backup on a phone, the family fetches the file from the backup server with the key, sends it to the phone, and loads it from the hidden 恢复记录 screen: tap the version line in 设置 five times, then 从备份文件恢复. The steps are in [server/aws/README.md](server/aws/README.md#restoring-a-phone).
+- Each phone, and each browser on it, backs up as a separate book.
 
 ## Run locally
 
@@ -124,7 +121,7 @@ GitHub Pages currently serves 1.1.1 straight from the `main` branch. From 2.0.0 
 
 ## First-time setup for mum
 
-**Install it on her phone first, then set it up from the home-screen icon.** On iPhone, the home-screen app has its own storage, separate from the Safari tab. Anything entered in Safari *before* installing won't show up in the installed app. If that happens, open 设置 → 保存备份文件 in Safari, then 设置 → 从备份文件恢复 in the installed app. Android Chrome shares storage, so this only affects iPhone.
+**Install it on her phone first, then set it up from the home-screen icon.** On iPhone, the home-screen app has its own storage, separate from the Safari tab. Anything entered in Safari *before* installing won't show up in the installed app. If that happens, the family can fetch the Safari copy's backup from the backup server and load it in the installed app (see [Where the data lives](#where-the-data-lives)). Android Chrome shares storage, so this only affects iPhone.
 
 1. Install it (steps below), then open 「善款簿」 from the home screen.
 2. Tap **＋ 新增项目**, e.g. 「Bhante 医疗费用」. Enter the money already on hand as 「开始时手上已有的钱」.
@@ -138,7 +135,7 @@ GitHub Pages currently serves 1.1.1 straight from the `main` branch. From 2.0.0 
    Leave the amount off for people who give a different amount each month.
 4. **「从哪个月开始」:** to start recording from now, keep the current month. If you pick an earlier month (e.g. January), those months show red (unpaid) until you fill them in from the paper book. To do that, open **全年表** and tap each cell.
 5. Repeat for the other fund (e.g. 「Dana Parami」).
-6. Make a first backup: 设置 → 保存备份文件. On Android the file goes to the **Download** folder. Send it on WhatsApp via 附件 → 文件.
+6. Nothing to do for backup: with signal, the app backs up by itself a few seconds after each change.
 
 ### 安装到手机（给妈妈）
 
@@ -152,4 +149,4 @@ GitHub Pages currently serves 1.1.1 straight from the `main` branch. From 2.0.0 
 
 **每个月：** 收到钱后，在「每月」页点名字右边的方格打勾。交钱给 Bhante 后，点「＋ 记录交钱 / 支出」。
 
-**常常备份：** 设置 → 保存备份文件 → 发给家人的 WhatsApp。
+**备份：** 不用做什么。手机有网络时，善款簿会自己备份。
