@@ -1,10 +1,10 @@
 'use client';
 /* 善款簿 — the screens. The records and everything behind them are in store.js. */
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   S, L, APP_VERSION, subscribe, getVersion, init, route, nav, goBack, mutate, money, openSheet,
   closeConfirm, showToast, toastAction, serverStatus, backupWarning, canOfferInstall, doInstall,
-  shareOrDownload, shareText, doRestore, loadBookFromText, setFontSize, setCurrency,
+  shareOrDownload, shareText, doRestore, loadBookFromText, setFontSize, setCurrency, fetchPublicAccounts,
 } from './store';
 import { SHEETS } from './sheets';
 
@@ -13,7 +13,7 @@ export default function LedgerApp() {
   useEffect(init, []);
 
   const r = S.ready ? route() : null;
-  const title = r ? (r.fund ? `${r.fund.name} · 善款簿` : '善款簿') : '善款簿';
+  const title = r ? (r.fund ? `${r.fund.name} · 善款簿` : r.name === 'public' ? '公开账目 · 善款簿' : '善款簿') : '善款簿';
   useEffect(() => {
     document.title = title;
   }, [title]);
@@ -26,6 +26,7 @@ export default function LedgerApp() {
     else if (r.name === 'offerings') view = <OfferingsView />;
     else if (r.name === 'settings') view = <SettingsView />;
     else if (r.name === 'restore') view = <RestoreView />;
+    else if (r.name === 'public') view = <PublicView />;
     else view = <HomeView />;
   }
   const Sheet = S.sheet && SHEETS[S.sheet.type];
@@ -34,7 +35,8 @@ export default function LedgerApp() {
     <>
       <div id="app">
         {view}
-        {r && <Sidebar r={r} />}
+        {/* The public page is for visitors: no list of this phone's own funds beside it. */}
+        {r && r.name !== 'public' && <Sidebar r={r} />}
       </div>
       <div id="sheet" className={S.sheetShown ? 'open' : undefined}>
         {Sheet && <Sheet key={S.sheet.key} {...S.sheet.props} />}
@@ -584,6 +586,83 @@ function SettingsView() {
           </form>
         </section>
         <p className="about" data-action="about-tap" onClick={aboutTap}>{`善款簿 ${APP_VERSION} · 不需要上网也能用`}</p>
+      </main>
+    </>
+  );
+}
+
+/**
+ * 公开账目, for anyone: each fund's money in, money handed over and balance, as the family
+ * published it on the backup server. No names: the server sends only totals. This page never
+ * reads or changes the records on this phone.
+ */
+function PublicView() {
+  const [state, setState] = useState({ loading: true, data: null, error: null });
+  useEffect(() => {
+    let live = true;
+    fetchPublicAccounts().then(
+      (data) => live && setState({ loading: false, data, error: null }),
+      (e) => live && setState({ loading: false, data: null, error: e.message })
+    );
+    return () => { live = false; };
+  }, []);
+  const { loading, data, error } = state;
+  const rm = (c) => L.fmtMoney(c, data ? data.currency : 'RM');
+  const shortMonth = (m) => `${+m.slice(5, 7)}月`;
+  const when = (iso) => new Date(iso).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  return (
+    <>
+      <Topbar title="公开账目" />
+      <main className="page" data-page="public">
+        <section className="card">
+          <p>{'这里公开每个项目的钱：收到多少、交出多少、手上还有多少。'}<br />{'不显示捐款人的名字，也不显示各人给了多少。'}</p>
+          {data ? <p className="hint">{`${data.year} 年 · 更新于 ${when(data.updatedAt)}`}</p> : null}
+        </section>
+        {data && data.notice ? <div className="banner" role="note"><span className="banner-text">{data.notice}</span></div> : null}
+        {loading ? <p className="muted" data-role="public-loading">正在载入…</p> : null}
+        {error ? <div className="empty" data-role="public-error"><p>{error}</p></div> : null}
+        {data
+          ? data.funds.map((f) => (
+              <section className="card fund-card" key={f.name} data-role="public-fund">
+                <h2 className="fund-name">{f.name}</h2>
+                {f.recipient ? <span className="fund-row"><span>交给</span><b>{f.recipient}</b></span> : null}
+                <span className="fund-row"><span>名单上</span><b>{`${f.people} 个名字`}</b></span>
+                {f.carriedIn ? <span className="fund-row"><span>{`${data.year - 1} 年留下`}</span><b>{rm(f.carriedIn)}</b></span> : null}
+                <span className="fund-row"><span>{`${data.year} 年收到`}</span><b>{rm(f.received)}</b></span>
+                <span className="fund-row"><span>{`${data.year} 年交出`}</span><b>{rm(f.paidOut)}</b></span>
+                <span className="fund-row fund-row-strong"><span>手上应有</span><b className={f.onHand < 0 ? 'pub-neg' : undefined}>{rm(f.onHand)}</b></span>
+                <details>
+                  <summary>每月明细</summary>
+                  <div className="grid-wrap" tabIndex={0} aria-label={`${f.name} 每月明细，可以左右滑动`}>
+                    <table className="grid">
+                      <thead><tr><th scope="col" className="name-col">月份</th><th scope="col">收到</th><th scope="col">交出</th><th scope="col">结余</th></tr></thead>
+                      <tbody>
+                        {f.months.map((m) => (
+                          <tr key={m.month}>
+                            <th scope="row" className="name-col">{shortMonth(m.month)}</th>
+                            <td className="pub-cell">{m.received ? L.fmtNum(m.received) : ''}</td>
+                            <td className="pub-cell">{m.paidOut ? L.fmtNum(m.paidOut) : ''}</td>
+                            <td className={m.balance < 0 ? 'pub-cell pub-neg' : 'pub-cell'}>{L.fmtNum(m.balance)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {f.payouts.length ? (
+                    <>
+                      <h3 className="section-label">交出的日期</h3>
+                      <ul className="plist">
+                        {f.payouts.map((p, i) => (
+                          <li className="prow" key={i}><span className="pdate">{L.shortDate(p.date) + '/' + p.date.slice(0, 4)}</span><span className="pamt">{rm(p.amount)}</span></li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : <p className="hint">{`${data.year} 年还没有交出的记录。`}</p>}
+                </details>
+              </section>
+            ))
+          : null}
       </main>
     </>
   );

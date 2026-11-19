@@ -22,6 +22,12 @@
  *   PUT /book/<code>              publish a book for phones to load                (key needed)
  *   GET /book/<code>              read it                (no key: the code is what opens it)
  *
+ * And the public accounts: money totals of the funds the family chose to show, with no names
+ * (see public-summary.ts). Only the summary is stored; the book sent to make it is not kept.
+ *
+ *   PUT /public                   { book, funds, year?, notice? } -> make and keep the summary (key needed)
+ *   GET /public                   the summary, for anyone
+ *
  * Every distinct version is kept and nothing is ever deleted. Because uploads need no key, they
  * are limited in size, and once the storage quota is reached new uploads are refused, so old
  * backups are never removed to make room.
@@ -30,6 +36,10 @@
  */
 import crypto from 'node:crypto';
 import L from '../lib/model.js';
+import { publicSummary } from './public-summary.ts';
+
+/** Where the public summary is kept among the shared books. Book ids are 64 hex digits, so it can't clash. */
+const PUBLIC_ID = 'public-summary';
 
 /** Where backups are kept. */
 export interface Store {
@@ -261,6 +271,27 @@ export function createBackupService({
       if (method === 'PUT') return putBook(shared[1], readBody);
       const text = await store.getBook(bookId(shared[1]));
       return text == null ? json(404, { error: 'no book under this code' }) : json(200, text);
+    }
+
+    if (pathname === '/public') {
+      if (method === 'GET') {
+        const text = await store.getBook(PUBLIC_ID);
+        return text == null ? json(404, { error: 'nothing published yet' }) : json(200, text);
+      }
+      if (method !== 'PUT') return json(405, { error: 'method not allowed' });
+      if (!authorized(headers.authorization)) return json(401, { error: 'wrong or missing key' });
+      const body = await readBody(maxBytes);
+      if (Buffer.byteLength(body) > maxBytes) throw httpError(413, 'too large');
+      let request: unknown;
+      try {
+        request = JSON.parse(body);
+      } catch (_) {
+        throw httpError(400, 'not JSON');
+      }
+      const summary = publicSummary(request as Parameters<typeof publicSummary>[0], now());
+      await store.saveBook(PUBLIC_ID, JSON.stringify(summary));
+      log.log(`published the public accounts: ${summary.funds.length} funds`);
+      return json(201, summary);
     }
 
     const one = /^\/backups\/([^/]*)\/latest$/.exec(pathname);

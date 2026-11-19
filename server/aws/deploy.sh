@@ -64,7 +64,7 @@ say "2/3 The code"
 # built and asks it /health, so code that cannot start stops here, before anything is uploaded.
 (cd "$ROOT" && npm run --silent build:server)
 ZIP="$(mktemp -d)/backup.zip"
-(cd "$ROOT/server/dist" && zip -q -X "$ZIP" lib/model.js lib/package.json server/package.json server/backup-core.js server/aws/lambda.js server/aws/store-s3.js)
+(cd "$ROOT/server/dist" && zip -q -X "$ZIP" lib/model.js lib/package.json server/package.json server/backup-core.js server/public-summary.js server/aws/lambda.js server/aws/store-s3.js)
 aws lambda update-function-code --function-name "$FN" --zip-file "fileb://$ZIP" --query LastUpdateStatus --output text
 aws lambda wait function-updated --function-name "$FN"
 rm -f "$ZIP"

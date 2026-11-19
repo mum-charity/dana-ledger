@@ -23,6 +23,11 @@ const server = http.createServer((req, res) => {
     req.on('end', () => { if (req.method === 'PUT') backups.push({ path: p, body }); res.writeHead(200); res.end('{}'); });
     return;
   }
+  // The public accounts: totals only, as the backup server makes them.
+  if (p === '/public') {
+    res.writeHead(publicAccounts ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(publicAccounts ? JSON.stringify(publicAccounts) : '{"error":"nothing published yet"}');
+  }
   // The family's book, published under a setup code: only that code opens it.
   if (p.startsWith('/book/')) {
     const found = req.method === 'GET' && p === '/book/' + SETUP_CODE && sharedBook;
@@ -39,6 +44,16 @@ const server = http.createServer((req, res) => {
 const backups = []; // every PUT /backup/<id> the app made
 const SETUP_CODE = '5e7'.padEnd(32, 'c'); // a setup code, as the family would make
 let sharedBook = null; // the book the family published under it
+let publicAccounts = null; // what GET /public answers
+const months2026 = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}`);
+const PUBLIC_FIXTURE = {
+  app: 'dana-ledger-public', version: 1, updatedAt: '2026-11-19T04:00:00.000Z', currency: 'RM', year: 2026, notice: '账目从旧簿抄入，正在核对中',
+  funds: [{
+    name: '公开测试项目', recipient: 'Bao Guo Vihara', people: 12, carriedIn: 0, received: 36000, paidOut: 30000, onHand: 6000,
+    months: months2026.map((month, i) => ({ month, received: i < 3 ? 12000 : 0, paidOut: i === 1 ? 30000 : 0, balance: i === 0 ? 12000 : 6000 })),
+    payouts: [{ date: '2026-02-28', amount: 30000 }],
+  }],
+};
 let failures = 0;
 function check(cond, msg) {
   console.log((cond ? '  ok   ' : '  FAIL ') + msg);
@@ -323,6 +338,27 @@ function check(cond, msg) {
   }
   await page.click('text=设置');
   await page.waitForSelector('[data-size=xlarge]');
+
+  // --- 公开账目: a visitor with an empty browser sees the published totals, and none of this phone's funds
+  {
+    const pub = await context.newPage();
+    await pub.goto(base + '#/public');
+    await pub.waitForSelector('[data-role=public-error]');
+    check((await pub.textContent('[data-role=public-error]')).includes('还没有公开的账目'), 'public page says when nothing is published yet');
+    publicAccounts = PUBLIC_FIXTURE;
+    await pub.reload();
+    await pub.waitForSelector('[data-role=public-fund]');
+    const shown = await pub.textContent('main');
+    check(shown.includes('公开测试项目') && shown.includes('RM 360') && shown.includes('RM 300') && shown.includes('RM 60') && shown.includes('Bao Guo Vihara') && shown.includes('12 个名字'), 'public page shows a fund with money in, handed over, on hand and to whom');
+    check(shown.includes('正在核对中'), "public page shows the family's notice");
+    check(!(await pub.locator('.sidebar').count()) && !shown.includes('RM 299'), "public page shows no sidebar and none of this browser's own funds");
+    await pub.click('summary');
+    check((await pub.textContent('details')).includes('28/2/2026'), 'public page lists the date of each hand-over');
+    await pub.setViewportSize({ width: 360, height: 740 });
+    check(!(await pub.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'public page has no sideways scroll on a phone');
+    await pub.screenshot({ path: path.join(shotDir, '11c-public.png'), fullPage: true });
+    await pub.close();
+  }
 
   // --- font size: xlarge month page
   await page.click('[data-size=xlarge]');

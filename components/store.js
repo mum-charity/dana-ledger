@@ -225,6 +225,7 @@ export const thisYear = () => +L.currentMonth().slice(0, 4);
 // #/settings
 // #/restore             for the family: load a backup file (five taps on the version line in 设置)
 // #/setup/<code>        the family's setup link: an empty phone loads mum's book (see takeSetupLink)
+// #/public              公开账目: the funds' totals for anyone, with no names (see fetchPublicAccounts)
 export function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'f' && parts[1]) {
@@ -237,6 +238,7 @@ export function route() {
   if (parts[0] === 'offerings') return { name: 'offerings' };
   if (parts[0] === 'settings') return { name: 'settings' };
   if (parts[0] === 'restore') return { name: 'restore' };
+  if (parts[0] === 'public') return { name: 'public' };
   return { name: 'home' };
 }
 
@@ -506,6 +508,24 @@ async function loadBook(code, { replace = false } = {}) {
   } finally {
     loadingBook = false;
   }
+}
+
+// ================================================================ public accounts
+// #/public shows the funds' money totals that the family published on the backup server, for
+// anyone. It has no names in it (the server makes it that way) and never reads this phone's records.
+/** The published accounts, or throws with a message to show. */
+export async function fetchPublicAccounts() {
+  let res;
+  try {
+    res = await fetch(`${SERVER}/public`, { cache: 'no-store' });
+  } catch (e) {
+    throw new Error(navigator.onLine === false ? '没有网络，请连上网络再看。' : '连不上服务器，请稍后再看。');
+  }
+  if (res.status === 404) throw new Error('还没有公开的账目。');
+  if (!res.ok) throw new Error(`服务器出错（${res.status}），请稍后再看。`);
+  const data = await res.json();
+  if (!data || data.app !== 'dana-ledger-public' || !Array.isArray(data.funds)) throw new Error('收到的账目格式不对。');
+  return data;
 }
 
 /** From 恢复记录, for the family: load the book under the code or link they pasted. */

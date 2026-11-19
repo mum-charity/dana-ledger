@@ -246,6 +246,66 @@ for (const [kind, make] of Object.entries(STORES)) {
   });
 }
 
+/**
+ * A book with a secret marker in every field a person writes by hand: names, notes, month notes,
+ * offerings. None of it may ever reach the public accounts.
+ */
+const SECRET = 'SECRET-陈美玲';
+function bookWithSecrets() {
+  const s = L.emptyState();
+  const fund = L.addFund(s, { name: 'Bhante 医疗费用', opening: 5000, note: SECRET + ' note' });
+  L.setMonthNote(s, fund.id, '2026-02', SECRET + ' month');
+  const a = L.addMember(s, { fundId: fund.id, name: SECRET + ' 一', pledge: 1000, startMonth: '2026-01', note: SECRET + ' member' });
+  const b = L.addMember(s, { fundId: fund.id, name: SECRET + ' 二', pledge: 500, startMonth: '2026-01' });
+  L.setReceipt(s, { memberId: a.id, month: '2025-12', amount: 1000, date: '2025-12-20', note: SECRET + ' early' });
+  L.setReceipt(s, { memberId: a.id, month: '2026-01', amount: 1000, date: '2026-01-05', note: SECRET + ' receipt' });
+  L.setReceipt(s, { memberId: b.id, month: '2026-01', amount: 500, date: '2026-01-06' });
+  L.setReceipt(s, { memberId: a.id, month: '2027-01', amount: 1000, date: '2026-03-01' }); // paid a year ahead
+  L.addPayout(s, { fundId: fund.id, month: '2026-01', date: '2026-01-31', amount: 1200, note: SECRET + ' Ref 123456789 Tan Chai Lee' });
+  const hidden = L.addFund(s, { name: SECRET + ' hidden fund' });
+  L.addMember(s, { fundId: hidden.id, name: '张三', startMonth: '2026-01' });
+  L.addOffering(s, { date: '2026-01-10', recipient: SECRET + ' temple', lines: [{ name: SECRET + ' giver', amount: 2500 }], dedication: SECRET + ' dedication' });
+  return JSON.parse(L.backupJSON(s));
+}
+
+for (const [kind, make] of Object.entries(STORES)) {
+  test(`${kind}: the public accounts carry money totals and nothing written by hand`, async () => {
+    const st = make();
+    const svc = createBackupService({ token: TOKEN, store: st.open(), log: quiet, now: () => Date.parse('2026-11-19T04:00:00Z') });
+    const key = { authorization: `Bearer ${TOKEN}` };
+    const call = (method: string, body?: unknown, headers: Record<string, string> = {}) =>
+      svc.handle({ method, url: '/public', headers, readBody: async () => (body === undefined ? '' : JSON.stringify(body)) });
+    const request = { book: bookWithSecrets(), funds: [{ name: 'Bhante 医疗费用', recipient: '医疗费 · Bhante' }], notice: '账目从旧簿抄入，正在核对中' };
+
+    assert.equal((await call('GET')).status, 404, 'nothing before it is published');
+    assert.equal((await call('PUT', request)).status, 401, 'publishing needs the key');
+    assert.equal((await call('PUT', { ...request, funds: [{ name: 'no such fund' }] }, key)).status, 422);
+    assert.equal((await call('PUT', { ...request, funds: [] }, key)).status, 422);
+    assert.equal((await call('PUT', { ...request, funds: [request.funds[0], request.funds[0]] }, key)).status, 422);
+    assert.equal((await call('PUT', { ...request, book: { x: 1 } }, key)).status, 400);
+    assert.equal((await call('PUT', request, key)).status, 201);
+
+    const got = await call('GET', undefined, { origin: ORIGIN });
+    assert.equal(got.status, 200);
+    assert.ok(!got.body.includes('SECRET'), 'no name, note, ref or offering reaches the public: ' + got.body.slice(0, 300));
+    assert.ok(!got.body.includes('123456789') && !got.body.includes('张三'));
+    const pub = JSON.parse(got.body);
+    assert.equal(pub.app, 'dana-ledger-public');
+    assert.equal(pub.year, 2026);
+    assert.equal(pub.notice, '账目从旧簿抄入，正在核对中');
+    assert.equal(pub.funds.length, 1, 'only the fund the family chose');
+    const f = pub.funds[0];
+    assert.deepEqual(
+      { name: f.name, recipient: f.recipient, people: f.people, carriedIn: f.carriedIn, received: f.received, paidOut: f.paidOut, onHand: f.onHand, payouts: f.payouts },
+      { name: 'Bhante 医疗费用', recipient: '医疗费 · Bhante', people: 2, carriedIn: 6000, received: 1500, paidOut: 1200, onHand: 7300, payouts: [{ date: '2026-01-31', amount: 1200 }] }
+    );
+    assert.deepEqual(f.months[0], { month: '2026-01', received: 1500, paidOut: 1200, balance: 6300 });
+    assert.equal(f.months[11].balance, 6300);
+    assert.deepEqual(Object.keys(f).sort(), ['carriedIn', 'months', 'name', 'onHand', 'paidOut', 'payouts', 'people', 'received', 'recipient']);
+    st.cleanup();
+  });
+}
+
 test('s3: a shared book is kept apart from the phones, under a name that is not its code', async () => {
   const fake = fakeS3();
   const svc = createBackupService({ token: TOKEN, store: createS3Store({ s3: fake.s3, cmd: fake.cmd, bucket: 'test' }), log: quiet });

@@ -109,6 +109,7 @@ npm run deploy               # builds the app into out/, then uploads it
 | `server/backup-server.ts`, `server/store-disk.ts`, `server/pi-setup.sh`, `server/dana-backup.*` | The version that runs on the family's Raspberry Pi and keeps files on its disk, with its systemd service and installer |
 | `server/tsconfig.json`, `server/package.json`, `scripts/build-server.mts`, `lib/model.d.ts` | The server is TypeScript on Node.js. Node 24 runs it as it is; `npm run build:server` turns it into JavaScript in `server/dist/` for AWS Lambda and the Pi. `model.d.ts` describes `lib/model.js`, which is still JavaScript, as are the screens |
 | `scripts/publish-book.mts` | For the family: publishes a book on the backup server and prints its setup link |
+| `server/public-summary.ts`, `scripts/publish-public.mts` | The public accounts: money totals only, made from the book on the server; and the script that publishes them |
 | `server/aws/` | The version for AWS, keeping backups in an S3 bucket. See [server/aws/README.md](server/aws/README.md) |
 | `tests/server.test.mts` | Tests for the backup server, run against both the disk and S3 versions |
 | `tests/model.test.js` | Unit tests for balances, prepayments, import and CSV |
@@ -135,6 +136,17 @@ The second command prints a link like `https://mum.franklee.asia/#/setup/<code>`
 - After loading, the phone works as before: records are kept on the phone and back up by themselves as that phone's own book. It does not fetch the shared book again.
 - **Treat the link like a password.** Anyone who gets it can read every name and amount in the book. To stop an old link working, publish under a new code; the old copy stays in the bucket until someone with AWS access removes it.
 - Keep the book file in `private/`, which git ignores.
+
+## Public accounts (公开账目)
+
+https://mum.franklee.asia/#/public shows, for anyone, each fund the family chose: how many names are on its list, what came in and went out each month, what is on hand, and the date and amount of each hand-over. **No names of donors, no amounts per person, no notes or reference numbers, and no 供养记录.** The backup server makes this summary from the book and keeps only the summary (`server/public-summary.ts`); `GET /public` needs no key.
+
+It does not update by itself. To publish or update it, list the funds to show and whom each one's money goes to in a file in `private/`, then:
+
+```sh
+node scripts/publish-public.mts private/book.json private/public-funds.json          # prints exactly what the public will see; sends nothing
+BACKUP_TOKEN=<the family key> node scripts/publish-public.mts private/book.json private/public-funds.json --send
+```
 
 ## First-time setup for mum
 

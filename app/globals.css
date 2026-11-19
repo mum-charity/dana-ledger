@@ -443,6 +443,11 @@ b, strong { font-weight: 700; }
 .gdate { display: block; font-size: 0.72em; color: var(--muted); font-weight: 400; }
 .grid .bal-row td { color: var(--primary); }
 .grid .note-row td { white-space: normal; font-weight: 400; font-size: 0.75em; min-width: 5em; text-align: left; padding: 4px 6px; }
+/* ------------------------------------------------------------ public accounts */
+.grid td.pub-cell { padding: 6px 10px; text-align: right; }
+.pub-neg { color: var(--danger); }
+[data-page="public"] details { margin-top: 6px; }
+[data-page="public"] summary { cursor: pointer; color: var(--primary); font-weight: 600; padding: 6px 0; }
 .year-totals { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 0; }
 .year-totals div { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
 .actions { display: flex; flex-direction: column; gap: 10px; }
