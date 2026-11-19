@@ -4,7 +4,7 @@
   "name": "mum-dana-ledger",
   "compatibility_date": "2025-10-01",
   "assets": {
-    "directory": "./dist"
+    "directory": "./out"
   },
   "routes": [{ "pattern": "mum.franklee.asia", "custom_domain": true }],
   "workers_dev": false,
