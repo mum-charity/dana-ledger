@@ -18,14 +18,16 @@ The interface is Simplified Chinese with large text, and amounts are in RM (you 
 
 Last checked on 19 Nov 2026.
 
-https://mum.franklee.asia/ runs version 1.5.0, plain JavaScript. This branch is 2.0.0: the same app rebuilt with Next.js and React, plus a desktop layout. **2.0.0 has not been deployed or tried on a real phone.**
+https://mum.franklee.asia/ runs version 2.0.0, deployed from the `dev` branch on 19 Nov 2026. It is the 1.5.0 app rebuilt with Next.js and React, plus a desktop layout and without the demo. **It was checked in desktop Chrome at a phone's size, not yet on a real phone.**
 
 | Copy | Version | Backup |
 |---|---|---|
-| https://mum.franklee.asia/ | 1.5.0 | Automatic, to the family's backup server |
+| https://mum.franklee.asia/ | 2.0.0 | Automatic, to the family's backup server |
 | GitHub Pages | 1.1.1 | Manual backup file |
-| Branch `feat/install-button` | 1.6.0 (1.5.0 plus the 添加到手机主屏幕 button) | Automatic |
-| This branch | 2.0.0 (1.6.0 rebuilt with Next.js) | Automatic |
+| Branch `dev` | 2.0.0 | Automatic |
+| Branch `main` | 1.1.1 | Manual backup file |
+
+To go back to 1.5.0: `npx wrangler@4.158.0 rollback cff2a828-edf0-41cd-81eb-416fa8cb617a`. The tag `pi-server-as-installed` keeps 1.6.0 with the backup server's files exactly as they were installed on the Pi.
 
 What 2.0.0 changes:
 
@@ -38,7 +40,7 @@ Since 1.4.0 the app sends records to the backup server by itself whenever there 
 
 Still to do:
 
-- Try 2.0.0 on a real iPhone and Android phone before deploying. The tests run in desktop Chrome at a phone's size.
+- Try 2.0.0 on a real iPhone and Android phone. The tests run in desktop Chrome at a phone's size.
 - Find where 1.5.0 was deployed from. The live app went from 1.4.0 to 1.5.0 on 7–8 Nov from a copy outside this repo, and another deploy from there would replace anything deployed from here.
 - The backup server's log shows only two small test backups, on 7 and 8 Nov, and none since. Uploading works, but check that her real book arrives once she is using the app.
 - The Pi still runs the server as it was set up on 7 Nov. `server/` in this branch is split into more files and reads the rules from `lib/model.js`; `sudo bash server/pi-setup.sh` installs that layout. This has not been run on the Pi.
@@ -82,7 +84,7 @@ The end-to-end test fixes the date to 6 Nov 2026. It creates a fund, ticks peopl
 
 ## Deploy (Cloudflare)
 
-**Find out where 1.5.0 was deployed from before deploying from this repo.** Another deploy from that copy would replace whatever goes up from here. See [Current status](#current-status).
+**The copy that 1.5.0 was deployed from has never been found.** Another deploy from that copy would replace 2.0.0 with 1.5.0. See [Current status](#current-status).
 
 The app at https://mum.franklee.asia/ is a static-assets-only Cloudflare Worker, set up in `wrangler.jsonc`.
 
