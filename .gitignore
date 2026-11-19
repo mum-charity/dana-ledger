@@ -7,3 +7,6 @@ next-env.d.ts
 
 # Scans of the paper book: real names, phone numbers and bank details. Never commit.
 *.pdf
+
+# Real names and amounts from the paper book. Never commit.
+private/
