@@ -15,6 +15,7 @@ const server = http.createServer((req, res) => {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   // Redirect /index.html to / as Cloudflare does, so a service worker that caches the redirect fails here too.
   if (p.endsWith('/index.html')) { res.writeHead(307, { Location: p.slice(0, -'index.html'.length) }); return res.end(); }
+  if (p.startsWith('/backup/')) { res.writeHead(200); return res.end('{}'); } // stands in for the backup server
   if (p.endsWith('/')) p += 'index.html';
   const file = path.join(appDir, p);
   if (!file.startsWith(appDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('404'); }
@@ -31,9 +32,11 @@ function check(cond, msg) {
 (async () => {
   await new Promise((r) => server.listen(0, r));
   const base = `http://localhost:${server.address().port}/`;
-  const browser = await chromium.launch({ channel: 'msedge' });
+  const browser = await chromium.launch({ channel: process.env.E2E_CHANNEL || 'msedge' });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'zh-CN', acceptDownloads: true });
   await context.clock.setFixedTime(new Date('2026-11-06T10:00:00'));
+  // Keep the test's made-up records away from the real backup server.
+  await context.addInitScript(() => { window.LEDGER_BACKUP_SERVER = location.origin; });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));

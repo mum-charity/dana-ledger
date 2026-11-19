@@ -3,7 +3,7 @@
  * Bump VERSION on every deploy so phones pick up the new files.
  * It only caches the app's own files. Records live in localStorage and are never touched here.
  */
-const VERSION = '1.1.1';
+const VERSION = '1.6.0';
 const CACHE = 'dana-ledger-' + VERSION;
 // './' is the page itself (index.html). Cache it as './', never './index.html': Cloudflare
 // redirects /index.html to /, and a browser refuses to open a page from a redirected response.

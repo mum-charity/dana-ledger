@@ -3,7 +3,7 @@
   'use strict';
 
   const L = window.Ledger;
-  const APP_VERSION = '1.1.1';
+  const APP_VERSION = '1.6.0';
   // Demo mode (?demo) shows made-up sample data, saved under its own key so it
   // never mixes with the real records.
   const DEMO = new URLSearchParams(location.search).has('demo');
@@ -59,6 +59,7 @@
   function save() {
     state.settings.changesSinceBackup = (state.settings.changesSinceBackup || 0) + 1;
     persist();
+    serverChanged();
     if (!askedPersist && navigator.storage && navigator.storage.persist) {
       askedPersist = true;
       navigator.storage.persist().catch(() => {});
@@ -69,6 +70,107 @@
     save();
     render();
     return out;
+  }
+
+  // ================================================================ backup server
+  // Every change is also sent, by itself, to the backup server on the home Raspberry Pi whenever
+  // there is signal. There is nothing to set up: each phone backs up into its own folder there,
+  // named by a random id made the first time the app runs. Anyone can send a backup, but reading
+  // one back needs the family's key, which never comes to the phone. The demo never uses it.
+  const SERVER = window.LEDGER_BACKUP_SERVER || 'https://mum-backup.franklee.asia';
+  const KEY_DEVICE = 'dana-ledger:device-id'; // this phone's folder on the server; never in backup files
+  const KEY_PENDING = 'dana-ledger:backup-pending'; // set while there are changes not yet on the server
+  const KEY_STATUS = 'dana-ledger:backup-status'; // { ok, at, error, lastOkAt } of the last attempt
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* ignore */ } }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (_) { /* ignore */ } }
+
+  // Version 1.2.0 asked for a key and kept its own status. Forget both: the key read backups,
+  // so it must not stay on a phone.
+  ['dana-ledger:server-key', 'dana-ledger:server-pending', 'dana-ledger:server-status'].forEach(lsDel);
+
+  let device = null;
+  /** This phone's backup id: 32 random hex digits, made once and kept. */
+  function deviceId() {
+    if (device) return device;
+    let id = lsGet(KEY_DEVICE);
+    if (!/^[0-9a-f]{32}$/.test(id || '')) {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      lsSet(KEY_DEVICE, id);
+    }
+    return (device = id);
+  }
+
+  function serverStatus() {
+    try { return JSON.parse(lsGet(KEY_STATUS)) || {}; } catch (_) { return {}; }
+  }
+
+  async function sendToServer(body) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 20000);
+    let res;
+    try {
+      res = await fetch(`${SERVER}/backup/${deviceId()}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, cache: 'no-store', signal: ctl.signal });
+    } catch (e) {
+      throw new Error(navigator.onLine === false ? '没有网络' : '连不上服务器');
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) throw new Error(res.status === 507 ? '服务器的空间满了' : `服务器出错（${res.status}）`);
+  }
+
+  let uploadTimer = null;
+  let uploading = false;
+
+  /** A fresh marker each time, so an upload can tell whether more changes came in while it ran. */
+  const markPending = () => lsSet(KEY_PENDING, Math.random().toString(36).slice(2));
+
+  /** Note a change to the records, and send it to the server soon. */
+  function serverChanged() {
+    if (DEMO) return;
+    markPending();
+    scheduleUpload(3000);
+  }
+  function scheduleUpload(ms) {
+    if (DEMO || !lsGet(KEY_PENDING)) return;
+    clearTimeout(uploadTimer);
+    uploadTimer = setTimeout(uploadNow, ms);
+  }
+  /** Send the records to the server. Returns true when the server has them. */
+  async function uploadNow() {
+    clearTimeout(uploadTimer);
+    // An empty book is never sent: a new or wiped phone has nothing worth keeping yet.
+    if (DEMO || uploading || !state.funds.length) return false;
+    uploading = true;
+    const pending = lsGet(KEY_PENDING);
+    const before = serverStatus();
+    let ok = false;
+    try {
+      await sendToServer(L.backupJSON(state));
+      ok = true;
+      if (lsGet(KEY_PENDING) === pending) lsDel(KEY_PENDING);
+      lsSet(KEY_STATUS, JSON.stringify({ ok: true, at: Date.now(), lastOkAt: Date.now() }));
+      state.settings.lastBackupAt = Date.now();
+      state.settings.changesSinceBackup = 0;
+      persist();
+    } catch (e) {
+      lsSet(KEY_STATUS, JSON.stringify({ ok: false, at: Date.now(), error: e.message, lastOkAt: before.lastOkAt || null }));
+    } finally {
+      uploading = false;
+    }
+    scheduleUpload(ok ? 3000 : 120000); // changes made during the upload, or a retry
+    renderIfIdle();
+    return ok;
+  }
+
+  /** Re-render unless she is typing, so a finished upload never wipes what she's entering. */
+  function renderIfIdle() {
+    const a = document.activeElement;
+    if (a && app.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    render();
   }
 
   // ================================================================ helpers
@@ -100,6 +202,7 @@
   // #/f/<id>/y/<YYYY>     year table
   // #/f/<id>/p            people list
   // #/settings
+  // #/restore             for the family: load a backup file (five taps on the version line in 设置)
   function route() {
     const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
     if (parts[0] === 'f' && parts[1]) {
@@ -110,6 +213,7 @@
       return { name: 'month', fund, month: L.isMonth(parts[3]) ? parts[3] : L.currentMonth() };
     }
     if (parts[0] === 'settings') return { name: 'settings' };
+    if (parts[0] === 'restore') return { name: 'restore' };
     return { name: 'home' };
   }
 
@@ -140,16 +244,90 @@
     </header>`;
   }
 
+  /** Shown only when changes have not reached the Pi for a long time, so someone notices. */
   function backupBanner() {
     const st = state.settings;
-    if (DEMO || !state.funds.length || !st.changesSinceBackup) return '';
-    const days = daysSince(st.lastBackupAt);
-    if (days < BACKUP_NAG_DAYS && st.changesSinceBackup < 30) return '';
-    const msg = st.lastBackupAt ? `已经 ${days} 天没有备份了` : '还没有备份过';
-    return `<button class="banner banner-warn" data-action="backup">
-      <span class="banner-text"><strong>${msg}</strong><span>记录只存在这部手机里。点这里保存一份备份。</span></span>
-      <span class="banner-go" aria-hidden="true">›</span>
-    </button>`;
+    const ss = serverStatus();
+    if (DEMO || !state.funds.length || !lsGet(KEY_PENDING) || ss.ok !== false) return '';
+    const last = ss.lastOkAt || st.lastBackupAt;
+    if (last ? daysSince(last) < BACKUP_NAG_DAYS : (st.changesSinceBackup || 0) < 30) return '';
+    const msg = last ? `已经 ${daysSince(last)} 天没能备份到家里的服务器` : '还没能备份到家里的服务器';
+    return `<div class="banner banner-warn" role="status">
+      <span class="banner-text"><strong>${msg}</strong><span>新的记录现在只在这部手机里。请连上网络（例如家里的 Wi-Fi）再打开善款簿，它会自动备份。</span></span>
+    </div>`;
+  }
+
+  // ================================================================ add to home screen
+  // Android can show its own install prompt. On iPhone a page cannot start the install at all,
+  // so there the button opens the steps instead.
+  const UA = navigator.userAgent;
+  const IS_IOS = /iPad|iPhone|iPod/.test(UA) || (/Macintosh/.test(UA) && navigator.maxTouchPoints > 1);
+  const IS_ANDROID = /Android/.test(UA);
+  const IN_APP_BROWSER = /FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|WhatsApp|; wv\)/.test(UA);
+  const IOS_OTHER_BROWSER = /CriOS|FxiOS|EdgiOS|OPiOS|OPT\//.test(UA);
+  let installPrompt = null; // Android's prompt, held until the button is tapped
+  let installedNow = false;
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    renderIfIdle();
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    installedNow = true;
+    renderIfIdle();
+    showToast('已添加到主屏幕。以后请从主屏幕的「善款簿」图标打开。', { ms: 9000 });
+  });
+
+  function isInstalled() {
+    return installedNow || window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  }
+
+  function installButton() {
+    if (DEMO || isInstalled() || !(IS_IOS || IS_ANDROID || installPrompt)) return '';
+    return '<button class="btn btn-secondary btn-block" data-action="install">添加到手机主屏幕</button>';
+  }
+
+  async function doInstall() {
+    if (!installPrompt) return openInstallSheet();
+    const prompt = installPrompt;
+    installPrompt = null; // a browser lets each prompt be used only once
+    try {
+      await prompt.prompt();
+    } catch (_) {
+      openInstallSheet();
+    }
+  }
+
+  function openInstallSheet() {
+    const again = '再点一次「添加到手机主屏幕」';
+    let title = '添加到手机主屏幕';
+    let note = '如果主屏幕上已经有「善款簿」，直接点图标打开就可以。';
+    let steps;
+    if (IN_APP_BROWSER) {
+      title = '请先用浏览器打开';
+      steps = ['点右上角的菜单（⋯ 或 ⋮）', '选「在浏览器中打开」（iPhone 用 Safari，Android 用 Chrome）', `在浏览器里${again}`];
+    } else if (IS_IOS && IOS_OTHER_BROWSER) {
+      title = '请先用 Safari 打开';
+      steps = ['打开 Safari', `在地址栏输入：<b>${esc(location.host + location.pathname)}</b>`, `在 Safari 里${again}`];
+    } else if (IS_IOS) {
+      steps = [
+        '点下面的「分享」按钮（方框加向上的箭头）。看不到的话，先点右下角的「⋯」',
+        '往下滑，点「添加到主屏幕」',
+        '点右上角的「添加」',
+        '以后从主屏幕的「善款簿」图标打开，再开始记录',
+      ];
+      if (state.funds.length) note = '注意：iPhone 主屏幕的善款簿和 Safari 里的是分开的，这里已有的记录不会自动带过去。请先告诉家人。';
+    } else {
+      steps = ['点浏览器右上角的菜单（⋮）', '点「安装应用」或「添加到主屏幕」', '按提示确认，主屏幕就会出现「善款簿」图标'];
+    }
+    openSheet({
+      title,
+      body: `<ol class="install-steps">${steps.map((s) => `<li>${s}</li>`).join('')}</ol>
+        <p class="hint">${note}</p>
+        <div class="sheet-actions"><button type="button" class="btn btn-primary btn-block" data-action="sheet-close">知道了</button></div>`,
+    });
   }
 
   function viewHome() {
@@ -157,13 +335,13 @@
     let body = '';
     if (!storageOK) body += '<div class="banner banner-danger">⚠ 这个浏览器无法保存记录。请用 Chrome 或 Safari 的正常模式打开（不要用无痕模式）。</div>';
     body += backupBanner();
+    body += installButton();
     if (!state.funds.length) {
       body += `<section class="card empty">
         <div class="empty-mark" aria-hidden="true">善</div>
         <h2>欢迎使用善款簿</h2>
         <p>先新增一个项目，例如「Bhante 医疗费用」或「Dana Parami」，再把捐款人的名单加进去。</p>
         <button class="btn btn-primary btn-block" data-action="fund-new">＋ 新增项目</button>
-        <button class="btn btn-ghost btn-block" data-action="restore">从备份恢复</button>
         ${DEMO ? '' : '<button class="link-btn" data-action="demo-open">先看看示范（假资料）</button>'}
       </section>`;
     } else {
@@ -404,19 +582,9 @@
   function viewSettings() {
     const st = state.settings;
     const sizes = [['normal', '标准'], ['large', '大'], ['xlarge', '特大']];
-    const counts = `${state.funds.length} 个项目 · ${state.members.length} 人 · ${state.receipts.length} 笔收款 · ${state.payouts.length} 笔交出`;
     return (
       topbar({ title: '设置', back: true }) +
       `<main class="page">
-        <section class="card">
-          <h3 class="card-title">备份</h3>
-          <p>所有记录只存在<strong>这部手机</strong>里。手机换了、坏了、或清除了浏览器资料，记录就会不见。请常常保存备份，并发一份给家人。</p>
-          <p class="hint">Android 手机的备份会存到「下载」(Download) 文件夹。</p>
-          <p class="muted">${st.lastBackupAt ? `上次备份：${new Date(st.lastBackupAt).toLocaleString('zh-CN')}` : '还没有备份过'}</p>
-          <button class="btn btn-primary btn-block" data-action="backup">保存备份文件</button>
-          <button class="btn btn-ghost btn-block" data-action="restore">从备份文件恢复</button>
-          <p class="hint">${counts}</p>
-        </section>
         <section class="card">
           <h3 class="card-title">字体大小</h3>
           <div class="segmented" role="radiogroup" aria-label="字体大小">
@@ -430,11 +598,42 @@
             <button class="btn btn-secondary" type="submit">保存</button>
           </form>
         </section>
-        <p class="about">善款簿 ${APP_VERSION} · 不需要上网也能用</p>
+        <p class="about" data-action="about-tap">善款簿 ${APP_VERSION} · 不需要上网也能用</p>
       </main>`
     );
   }
 
+  /**
+   * For the family, not for mum: how a backup file gets onto a new phone, and whether backups are
+   * reaching the Pi. Five taps on the version line in 设置 open it, because on iPhone a link
+   * opens in Safari, never inside the installed app. #/restore also works.
+   */
+  function viewRestore() {
+    const counts = `${state.funds.length} 个项目 · ${state.members.length} 人 · ${state.receipts.length} 笔收款 · ${state.payouts.length} 笔交出`;
+    const when = (t) => new Date(t).toLocaleString('zh-CN');
+    const ss = serverStatus();
+    const autoState = DEMO
+      ? '这是示范，资料是假的，不会备份到服务器。'
+      : ss.ok
+        ? `已自动备份到家里的服务器：${when(ss.at)}`
+        : ss.at
+          ? `⚠ 这次没能备份到家里的服务器（${esc(ss.error)}），有网络时会自动再试。${ss.lastOkAt ? `<br>上次成功：${when(ss.lastOkAt)}` : ''}`
+          : '还没有备份到家里的服务器。';
+    return (
+      topbar({ title: '恢复记录', back: true }) +
+      `<main class="page">
+        <section class="card">
+          <p class="muted">${autoState}</p>
+          <p>用从家里服务器取得的备份文件，取代这部手机现在的记录。</p>
+          <button class="btn btn-ghost btn-block" data-action="restore">从备份文件恢复</button>
+          <p class="hint">这部手机现在有：${counts}</p>
+        </section>
+      </main>`
+    );
+  }
+
+  let aboutTaps = 0;
+  let aboutTimer = null;
   let lastGridScroll = 0;
   function render() {
     document.documentElement.dataset.font = state.settings.fontSize || 'large';
@@ -446,6 +645,7 @@
     else if (r.name === 'year') html = viewYear(r);
     else if (r.name === 'people') html = viewPeople(r);
     else if (r.name === 'settings') html = viewSettings();
+    else if (r.name === 'restore') html = viewRestore();
     else html = viewHome();
     if (DEMO) {
       html =
@@ -827,21 +1027,6 @@
     return 'downloaded';
   }
 
-  async function doBackup() {
-    const how = await shareOrDownload(`${DEMO ? '善款簿示范' : '善款簿备份'}-${L.todayISO()}.json`, L.backupJSON(state), 'application/json');
-    if (!how) return;
-    state.settings.lastBackupAt = Date.now();
-    state.settings.changesSinceBackup = 0;
-    persist();
-    render();
-    showToast(
-      how === 'downloaded'
-        ? '备份已存到手机的「下载」文件夹。可以在 WhatsApp 点附件 → 文件，选这个文件发给家人。'
-        : '备份已保存。可以发一份给家人保管。',
-      { ms: 9000 }
-    );
-  }
-
   async function doRestore(file) {
     let parsed;
     try {
@@ -850,14 +1035,20 @@
       showToast('打不开这个文件：' + (e.message || '格式不对'), { ms: 6000 });
       return;
     }
+    // The restored records become the latest copy on the server too.
+    if (await confirmAndRestore(parsed, '这个备份')) serverChanged();
+  }
+
+  /** Ask, then replace the records with a checked backup. Returns true if restored. */
+  async function confirmAndRestore(parsed, what) {
     const n = parsed.state;
     const yes = await confirmBox({
-      title: '用这个备份取代现在的记录？',
+      title: `用${what}取代现在的记录？`,
       message: `备份里有 ${n.funds.length} 个项目、${n.members.length} 人、${n.receipts.length} 笔收款。<br>手机里<strong>现在的记录会被取代</strong>。`,
       ok: '是，恢复备份',
       danger: true,
     });
-    if (!yes) return;
+    if (!yes) return false;
     try { localStorage.setItem(STORE_KEY + ':before-restore', JSON.stringify(state)); } catch (_) { /* ignore */ }
     state = n;
     state.settings.lastBackupAt = Date.now();
@@ -865,6 +1056,7 @@
     persist();
     nav('#/', true);
     showToast(`已恢复${parsed.dropped ? `（有 ${parsed.dropped} 笔坏掉的记录被跳过）` : ''}`, { ms: 5000 });
+    return true;
   }
 
   async function shareText(text) {
@@ -972,8 +1164,16 @@
     },
     print: () => window.print(),
 
-    backup: () => doBackup(),
     restore: () => restoreInput.click(),
+    install: () => doInstall(),
+    'about-tap': () => {
+      clearTimeout(aboutTimer);
+      aboutTimer = setTimeout(() => { aboutTaps = 0; }, 1500);
+      if (++aboutTaps >= 5) {
+        aboutTaps = 0;
+        nav('#/restore');
+      }
+    },
     font: (el) => {
       state.settings.fontSize = el.dataset.size;
       persist();
@@ -1053,6 +1253,17 @@
       render();
     }
   });
+
+  // Send changes still waiting for the server when the signal comes back or the app is reopened,
+  // and try once more as the app goes into the background.
+  window.addEventListener('online', () => scheduleUpload(1000));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleUpload(1000);
+    else if (!DEMO && lsGet(KEY_PENDING)) uploadNow();
+  });
+  // Records that have never reached the server (for example, from before automatic backup) go now.
+  if (!DEMO && state.funds.length && !lsGet(KEY_STATUS)) markPending();
+  scheduleUpload(2000);
 
   // ================================================================ service worker
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {

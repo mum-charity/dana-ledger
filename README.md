@@ -18,29 +18,29 @@ The interface is Simplified Chinese with large text, and amounts are in RM (you 
 
 ## Current status
 
-Last checked on 7 Nov 2026.
+Last checked on 8 Nov 2026.
 
-**The live app is ahead of this repo.** https://mum.franklee.asia/ runs version 1.4.0, while `dev` and `main` are at 1.1.1. The 1.4.0 source isn't in git, and the rest of this README describes 1.1.1.
+https://mum.franklee.asia/ runs version 1.5.0. This repo is 1.6.0: the 1.5.0 files copied from the live site, plus the 添加到手机主屏幕 button. Most of this README still describes 1.1.1.
 
 | Copy | Version | Backup |
 |---|---|---|
-| https://mum.franklee.asia/ | 1.4.0 | Automatic, to the family's backup server |
+| https://mum.franklee.asia/ | 1.5.0 | Automatic, to the family's backup server |
 | GitHub Pages | 1.1.1 | Manual backup file |
-| This repo (`dev`, `main`) | 1.1.1 | Manual backup file |
+| This repo | 1.6.0 | Automatic, to the family's backup server |
 
-In 1.4.0, `app.js` sends records to the backup server by itself whenever there is signal, and the 保存备份文件 button is gone. The other app files match this repo, apart from the version number in `sw.js` and line endings.
+Since 1.4.0, `app.js` sends records to the backup server by itself whenever there is signal, and the 保存备份文件 button is gone. A backup file can only be restored from a hidden screen: tap the version line in 设置 five times.
 
 Still to do:
 
-- Get the 1.4.0 source into git. It may still be on another machine. If it isn't, `app.js` and `sw.js` can be rebuilt from the live site.
+- Find where 1.5.0 was deployed from. The live app went from 1.4.0 to 1.5.0 on 7–8 Nov from a copy outside this repo, and another deploy from there would replace anything deployed from here.
 - Find the backup server's source, which isn't in this repo.
 - Confirm that records reach the backup server. Its health check passes, but that doesn't show backups are arriving.
-- Run the unit and end-to-end tests on 1.4.0.
-- Update this README for 1.4.0, and decide whether GitHub Pages should move to it too.
+- Update `tests/e2e.js` for 1.4.0 and later. It still clicks the removed 保存备份文件 button and stops there.
+- Update the rest of this README for automatic backup, and decide whether GitHub Pages should move to it too. Merging into `main` moves it.
 
 ## Where the data lives
 
-This section describes 1.1.1. The live app (1.4.0) also sends records to the backup server. See [Current status](#current-status).
+This section describes 1.1.1. The live app (1.5.0) also sends records to the backup server. See [Current status](#current-status).
 
 Records are stored **only on the phone**, in the browser's localStorage for this site. Nothing is sent anywhere. The hosted site only serves the app's code.
 
@@ -64,7 +64,7 @@ The end-to-end test fixes the date to 6 Nov 2026. It creates a fund, ticks peopl
 
 ## Deploy (Cloudflare)
 
-**Don't deploy from this repo yet.** `npm run deploy` would replace 1.4.0 with 1.1.1 and stop the automatic backups. See [Current status](#current-status).
+**Find out where 1.5.0 was deployed from before deploying from this repo.** Another deploy from that copy would replace whatever goes up from here. See [Current status](#current-status).
 
 The app at https://mum.franklee.asia/ is a static-assets-only Cloudflare Worker, set up in `wrangler.jsonc`.
 
@@ -118,6 +118,8 @@ All paths are relative, so it works from a sub-path.
 6. Make a first backup: 设置 → 保存备份文件. On Android the file goes to the **Download** folder. Send it on WhatsApp via 附件 → 文件.
 
 ### 安装到手机（给妈妈）
+
+**最简单：** 打开链接，点最上面的「添加到手机主屏幕」，照着提示做。
 
 **Android（Chrome）：** 用 Chrome 打开链接 → 点右上角 ⋮ → 「安装应用」或「添加到主屏幕」 → 主屏幕会出现「善款簿」图标。
 
