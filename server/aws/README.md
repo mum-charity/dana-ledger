@@ -2,7 +2,9 @@
 
 The same backup server as the one on the Raspberry Pi, running on AWS instead: phones send their records to an API Gateway address, a Lambda function checks them, and they are kept in a private S3 bucket. Nothing at home has to stay switched on.
 
-**Status (19 Nov 2026): deployed to AWS in `ap-southeast-1` as the stack `dana-backup`, and checked with one made-up test backup (sent, sent again, and read back). The app still sends backups to the Pi: the steps under [Moving the app over from the Pi](#moving-the-app-over-from-the-pi) have not been done.** The test backup, a fund named 部署测试 (deploy test), stays in the bucket, because nothing there is ever deleted.
+**Status (19 Nov 2026): live. `https://mum-backup.franklee.asia` has pointed at this server since 19 Nov, so phones now back up to the S3 bucket.** The Pi's server is still installed and running but no longer receives anything; see step 6 below. The bucket also holds one made-up test backup, a fund named 部署测试 (deploy test), which stays because nothing there is ever deleted.
+
+To go back to the Pi: in Cloudflare DNS, set the `mum-backup` record to CNAME `862f8cc9-f543-43f8-a43d-2882f38e560f.cfargotunnel.com`, Proxied.
 
 ## What gets created
 

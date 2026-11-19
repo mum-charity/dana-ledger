@@ -44,7 +44,7 @@ Still to do:
 - Find where 1.5.0 was deployed from. The live app went from 1.4.0 to 1.5.0 on 7–8 Nov from a copy outside this repo, and another deploy from there would replace anything deployed from here.
 - The backup server's log shows only two small test backups, on 7 and 8 Nov, and none since. Uploading works, but check that her real book arrives once she is using the app.
 - The Pi still runs the server as it was set up on 7 Nov. `server/` in this branch is split into more files and reads the rules from `lib/model.js`; `sudo bash server/pi-setup.sh` installs that layout. This has not been run on the Pi.
-- Backups are to move from the Pi to AWS (an S3 bucket). The AWS side was deployed and checked on 19 Nov, but **the app still backs up to the Pi** until its backup address is pointed at AWS. Those steps are in [server/aws/README.md](server/aws/README.md).
+- Backups moved from the Pi to AWS (an S3 bucket) on 19 Nov: the app's backup address now points at the server in [server/aws/](server/aws/README.md). The Pi's backup service is still running but unused; stop it once a real backup from mum's phone has been seen on AWS.
 - Once backups are on AWS, the app's messages that say 家里的服务器 (the server at home) will be wrong and need rewording.
 - Update the rest of this README for automatic backup. The sections below still mention 保存备份文件.
 - Decide what happens to GitHub Pages. **Don't merge this branch into `main` until then:** `main` is what GitHub Pages serves, and it would stop working.
