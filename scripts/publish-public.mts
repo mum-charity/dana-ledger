@@ -53,6 +53,14 @@ const token = process.env.BACKUP_TOKEN || stop('set BACKUP_TOKEN to the family k
 const server = (process.env.BACKUP_SERVER || 'https://mum-backup.franklee.asia').replace(/\/+$/, '');
 const res = await fetch(`${server}/public`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(request) });
 if (!res.ok) stop(`the server answered ${res.status}: ${await res.text()}`);
+await res.text();
+// Read it back the way a visitor's browser will. The reply is read to the end so Node can exit.
 const back = await fetch(`${server}/public`);
-if (!back.ok) stop(`published, but reading it back gave ${back.status}`);
+const backText = await back.text();
+let fundsBack = -1;
+try {
+  fundsBack = JSON.parse(backText).funds.length;
+} catch (_) { /* reported below */ }
+if (!back.ok || fundsBack !== summary.funds.length) stop(`published, but reading it back gave ${back.status} with ${fundsBack} funds`);
 console.log(`\nPublished. Anyone can now see it at https://mum.franklee.asia/#/public`);
+process.exit(0);
