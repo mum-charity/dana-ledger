@@ -2,8 +2,6 @@
 
 **App link:** https://mum.franklee.asia/
 
-**Demo with made-up sample data:** https://mum.franklee.asia/?demo. The demo keeps its data separately, so trying things there never touches the real records. Tap 重来 to reset it or 离开示范 to leave.
-
 The same app is also on GitHub Pages at https://mum-charity.github.io/dana-ledger/. Each address keeps its own records, so she should use only one of them. To move records from one to the other, save a backup at the old address and restore it at the new one.
 
 A small offline web app (PWA) for keeping a monthly donation book. It works like a paper book:
@@ -44,7 +42,7 @@ Still to do:
 - Find where 1.5.0 was deployed from. The live app went from 1.4.0 to 1.5.0 on 7–8 Nov from a copy outside this repo, and another deploy from there would replace anything deployed from here.
 - The backup server's log shows only two small test backups, on 7 and 8 Nov, and none since. Uploading works, but check that her real book arrives once she is using the app.
 - The Pi still runs the server as it was set up on 7 Nov. `server/` in this branch is split into more files and reads the rules from `lib/model.js`; `sudo bash server/pi-setup.sh` installs that layout. This has not been run on the Pi.
-- Backups are to move from the Pi to AWS (an S3 bucket). The code is in `server/aws/` and passes its tests, but **nothing has been deployed to AWS yet**. The steps, including pointing the app's backup address at AWS, are in [server/aws/README.md](server/aws/README.md).
+- Backups are to move from the Pi to AWS (an S3 bucket). The AWS side was deployed and checked on 19 Nov, but **the app still backs up to the Pi** until its backup address is pointed at AWS. Those steps are in [server/aws/README.md](server/aws/README.md).
 - Once backups are on AWS, the app's messages that say 家里的服务器 (the server at home) will be wrong and need rewording.
 - Update the rest of this README for automatic backup. The sections below still mention 保存备份文件.
 - Decide what happens to GitHub Pages. **Don't merge this branch into `main` until then:** `main` is what GitHub Pages serves, and it would stop working.
@@ -70,7 +68,7 @@ npm run build              # writes the finished app to out/
 npx http-server -c-1 out   # serves the built app, with offline mode, at http://localhost:8080
 ```
 
-**Open the app with `?demo` when trying things by hand.** Without it, anything you enter is sent to the real backup server as a new phone's backup.
+**Trying things by hand on your own computer is safe.** At `localhost` the app keeps records in that browser only and never sends them to the backup server. At any other address, anything you enter is sent to the real backup server as a new phone's backup.
 
 ```sh
 npm test                                   # unit tests for the money/balance rules and the backup server
@@ -80,7 +78,7 @@ npm run build && node tests/upgrade.js     # a phone on 1.6.0 moves to this buil
 
 The browser tests use Edge. Put `E2E_CHANNEL=chrome` in front to use Chrome. They send backups to their own stand-in server, never the real one.
 
-The end-to-end test fixes the date to 6 Nov 2026. It creates a fund, ticks people as paid, prepays a year, records a payout, and checks the year table's balances against hand-worked numbers. It also checks offline use, automatic backup, wipe-and-restore, the CSV export, the demo and the desktop layout. Screenshots go to `.e2e-out/`.
+The end-to-end test fixes the date to 6 Nov 2026. It creates a fund, ticks people as paid, prepays a year, records a payout, and checks the year table's balances against hand-worked numbers. It also checks offline use, automatic backup, wipe-and-restore, the CSV export and the desktop layout. Screenshots go to `.e2e-out/`.
 
 ## Deploy (Cloudflare)
 
@@ -108,7 +106,6 @@ GitHub Pages currently serves 1.1.1 straight from the `main` branch. From 2.0.0 
 | `app/layout.jsx`, `app/page.jsx` | Page shell and PWA meta tags |
 | `app/globals.css` | Styles: large text, dark mode, the desktop layout, and the print layout for the year table |
 | `lib/model.js` | All data rules (money in integer cents, months as `YYYY-MM`). Has no screen code and is unit-tested in Node |
-| `lib/demo.js` | Made-up sample data for `?demo` |
 | `components/store.js` | Saving on the phone, automatic backup, routes, and which sheet or toast is open |
 | `components/LedgerApp.jsx` | The screens |
 | `components/sheets.jsx` | The forms that slide up (dialogs on desktop) |

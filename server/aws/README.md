@@ -2,7 +2,7 @@
 
 The same backup server as the one on the Raspberry Pi, running on AWS instead: phones send their records to an API Gateway address, a Lambda function checks them, and they are kept in a private S3 bucket. Nothing at home has to stay switched on.
 
-**Status (19 Nov 2026): written and tested on this computer only. It has not been deployed to AWS, and the app still sends backups to the Pi.**
+**Status (19 Nov 2026): deployed to AWS in `ap-southeast-1` as the stack `dana-backup`, and checked with one made-up test backup (sent, sent again, and read back). The app still sends backups to the Pi: the steps under [Moving the app over from the Pi](#moving-the-app-over-from-the-pi) have not been done.** The test backup, a fund named 部署测试 (deploy test), stays in the bucket, because nothing there is ever deleted.
 
 ## What gets created
 

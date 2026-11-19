@@ -11,6 +11,8 @@
 #   DOMAIN_NAME, CERTIFICATE_ARN   the address the app calls and its ACM certificate (see README)
 #   ALERT_EMAIL     gets an email when the month's AWS bill passes US$5
 #   ALLOWED_ORIGINS default https://mum.franklee.asia
+#   KEY_FILE        on the first run, save the key for reading backups in this file (readable only
+#                   by you) instead of showing it on screen
 set -euo pipefail
 
 STACK="${STACK_NAME:-dana-backup}"
@@ -83,7 +85,11 @@ The backup server is running at:
   $URL
 Backups are kept in the bucket: $(out BucketName)
 DONE
-if [ -n "${NEW_KEY:-}" ]; then
+if [ -n "${NEW_KEY:-}" ] && [ -n "${KEY_FILE:-}" ]; then
+  (umask 077 && printf '%s\n' "$key" > "$KEY_FILE")
+  echo
+  echo "The key for reading backups back is saved in $KEY_FILE. Move it to your password manager."
+elif [ -n "${NEW_KEY:-}" ]; then
   cat <<DONE
 
 The key for reading backups back (keep it in your password manager; it is shown only this once):
