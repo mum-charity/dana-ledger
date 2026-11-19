@@ -1,7 +1,7 @@
 // Run with: node --test tests/
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const L = require('../model.js');
+const L = require('../lib/model.js');
 
 function setup() {
   const s = L.emptyState();
@@ -218,7 +218,7 @@ test('share text summarises the month', () => {
 });
 
 test('demo data is valid and looks like a real book', () => {
-  const Demo = require('../demo.js');
+  const Demo = require('../lib/demo.js');
   const now = new Date('2026-11-06T10:00:00');
   const s = Demo.build(L, now);
   const again = Demo.build(L, now);

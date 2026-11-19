@@ -18,29 +18,38 @@ The interface is Simplified Chinese with large text, and amounts are in RM (you 
 
 ## Current status
 
-Last checked on 8 Nov 2026.
+Last checked on 19 Nov 2026.
 
-https://mum.franklee.asia/ runs version 1.5.0. This repo is 1.6.0: the 1.5.0 files copied from the live site, plus the 添加到手机主屏幕 button. Most of this README still describes 1.1.1.
+https://mum.franklee.asia/ runs version 1.5.0, plain JavaScript. This branch is 2.0.0: the same app rebuilt with Next.js and React, plus a desktop layout. **2.0.0 has not been deployed or tried on a real phone.**
 
 | Copy | Version | Backup |
 |---|---|---|
 | https://mum.franklee.asia/ | 1.5.0 | Automatic, to the family's backup server |
 | GitHub Pages | 1.1.1 | Manual backup file |
-| This repo | 1.6.0 | Automatic, to the family's backup server |
+| Branch `feat/install-button` | 1.6.0 (1.5.0 plus the 添加到手机主屏幕 button) | Automatic |
+| This branch | 2.0.0 (1.6.0 rebuilt with Next.js) | Automatic |
 
-Since 1.4.0, `app.js` sends records to the backup server by itself whenever there is signal, and the 保存备份文件 button is gone. A backup file can only be restored from a hidden screen: tap the version line in 设置 five times.
+What 2.0.0 changes:
+
+- The screens are React components in `components/`. The money rules in `lib/model.js` are unchanged, and so is everything saved on the phone, so her records and her folder on the backup server carry over. `tests/upgrade.js` checks this.
+- On a phone it looks the same as 1.6.0. On a wide screen (960px and up) the funds are listed down the left side, the month page has two columns, and sheets open as dialogs in the middle.
+- It is still only static files with no server code of its own. Backups still go to the family's backup server.
+- It now needs a build step (`npm run build`), so GitHub Pages can no longer serve it straight from a branch. See [Deploy (GitHub Pages)](#deploy-github-pages).
+
+Since 1.4.0 the app sends records to the backup server by itself whenever there is signal, and the 保存备份文件 button is gone. A backup file can only be restored from a hidden screen: tap the version line in 设置 five times.
 
 Still to do:
 
+- Try 2.0.0 on a real iPhone and Android phone before deploying. The tests run in desktop Chrome at a phone's size.
 - Find where 1.5.0 was deployed from. The live app went from 1.4.0 to 1.5.0 on 7–8 Nov from a copy outside this repo, and another deploy from there would replace anything deployed from here.
 - Find the backup server's source, which isn't in this repo.
 - Confirm that records reach the backup server. Its health check passes, but that doesn't show backups are arriving.
-- Update `tests/e2e.js` for 1.4.0 and later. It still clicks the removed 保存备份文件 button and stops there.
-- Update the rest of this README for automatic backup, and decide whether GitHub Pages should move to it too. Merging into `main` moves it.
+- Update the rest of this README for automatic backup. The sections below still mention 保存备份文件.
+- Decide what happens to GitHub Pages. **Don't merge this branch into `main` until then:** `main` is what GitHub Pages serves, and it would stop working.
 
 ## Where the data lives
 
-This section describes 1.1.1. The live app (1.5.0) also sends records to the backup server. See [Current status](#current-status).
+This section describes 1.1.1. Every version since 1.4.0 also sends records to the backup server. See [Current status](#current-status).
 
 Records are stored **only on the phone**, in the browser's localStorage for this site. Nothing is sent anywhere. The hosted site only serves the app's code.
 
@@ -52,15 +61,24 @@ This means:
 
 ## Run locally
 
-Any static file server works. The service worker needs `localhost` or HTTPS, so opening `file://` won't work.
-
 ```sh
-npx http-server -c-1 .     # then open http://localhost:8080
-npm test                   # unit tests for the money/balance rules
-npm install && npm run test:e2e   # drives the real app in Edge on a phone-sized screen
+npm install
+npm run dev                # http://localhost:3000, reloads as you edit. No offline mode here.
+npm run build              # writes the finished app to out/
+npx http-server -c-1 out   # serves the built app, with offline mode, at http://localhost:8080
 ```
 
-The end-to-end test fixes the date to 6 Nov 2026. It creates a fund, ticks people as paid, prepays a year, records a payout, and checks the year table's balances against hand-worked numbers. It also checks offline use, backup, wipe-and-restore and the CSV export. Screenshots go to `.e2e-out/`.
+**Open the app with `?demo` when trying things by hand.** Without it, anything you enter is sent to the real backup server as a new phone's backup.
+
+```sh
+npm test                                   # unit tests for the money/balance rules
+npm run test:e2e                           # builds, then drives the real app on a phone-sized screen
+npm run build && node tests/upgrade.js     # a phone on 1.6.0 moves to this build and keeps its records
+```
+
+The browser tests use Edge. Put `E2E_CHANNEL=chrome` in front to use Chrome. They send backups to their own stand-in server, never the real one.
+
+The end-to-end test fixes the date to 6 Nov 2026. It creates a fund, ticks people as paid, prepays a year, records a payout, and checks the year table's balances against hand-worked numbers. It also checks offline use, automatic backup, wipe-and-restore, the CSV export, the demo and the desktop layout. Screenshots go to `.e2e-out/`.
 
 ## Deploy (Cloudflare)
 
@@ -70,34 +88,34 @@ The app at https://mum.franklee.asia/ is a static-assets-only Cloudflare Worker,
 
 ```sh
 npx wrangler@4.158.0 login   # first time only: approve in the browser within about 2 minutes
-npm run deploy               # copies the app's files into dist/, then uploads them
+npm run deploy               # builds the app into out/, then uploads it
 ```
 
-`npm run deploy` uploads only the files listed in `ASSETS` in `sw.js`, plus `index.html` and `sw.js`, so the README, tests and `node_modules` stay private. Cloudflare redirects `/index.html` to `/`, so the service worker caches the page as `./`. The end-to-end test's server does the same redirect.
+`npm run deploy` uploads only `out/`, so the README, tests and `node_modules` stay private. Cloudflare redirects `/index.html` to `/`, so the service worker caches the page as `./`. The end-to-end test's server does the same redirect.
 
 ## Deploy (GitHub Pages)
 
-1. Push this folder to a GitHub repo.
-2. In the repo, go to **Settings → Pages**. Set **Source: Deploy from a branch** and **Branch: main / (root)**.
-3. The app will be at `https://<owner>.github.io/<repo>/`.
+GitHub Pages currently serves 1.1.1 straight from the `main` branch. From 2.0.0 the app has to be built first, so that no longer works. To keep a GitHub Pages copy, add a GitHub Actions workflow that runs `BASE_PATH=/dana-ledger npm run build` and publishes `out/`. `BASE_PATH` is needed because the app sits under `/dana-ledger/` there. This has not been set up.
 
-All paths are relative, so it works from a sub-path.
-
-**Every time you change a file:** bump `VERSION` in `sw.js` and `APP_VERSION` in `app.js`. Otherwise phones keep the cached old version. The next time she opens the app it updates and shows 「善款簿已更新」.
+**Every time you change the app:** bump `version` in `package.json`. That is the number shown in 设置. Phones pick up a new build either way, because `npm run build` gives the offline cache a new name whenever any file changes. The next time she opens the app it updates and shows 「善款簿已更新」.
 
 ## Files
 
 | File | What it does |
 | --- | --- |
-| `index.html` | Page shell and PWA meta tags |
-| `model.js` | All data rules (money in integer cents, months as `YYYY-MM`). Has no DOM code and is unit-tested in Node |
-| `app.js` | Screens, forms, backup, sharing |
-| `style.css` | Styles: large text, dark mode and print layout for the year table |
-| `sw.js` | Offline cache (app files only, never the records) |
-| `manifest.webmanifest`, `icons/` | Home-screen install |
+| `app/layout.jsx`, `app/page.jsx` | Page shell and PWA meta tags |
+| `app/globals.css` | Styles: large text, dark mode, the desktop layout, and the print layout for the year table |
+| `lib/model.js` | All data rules (money in integer cents, months as `YYYY-MM`). Has no screen code and is unit-tested in Node |
+| `lib/demo.js` | Made-up sample data for `?demo` |
+| `components/store.js` | Saving on the phone, automatic backup, routes, and which sheet or toast is open |
+| `components/LedgerApp.jsx` | The screens |
+| `components/sheets.jsx` | The forms that slide up (dialogs on desktop) |
+| `scripts/sw.template.js`, `scripts/build.js` | Offline cache. The build fills in the file list and writes `out/sw.js` |
+| `public/manifest.webmanifest`, `public/icons/` | Home-screen install |
 | `tests/model.test.js` | Unit tests for balances, prepayments, import and CSV |
-| `tests/e2e.js` | End-to-end test in Edge on a phone-sized screen |
-| `wrangler.jsonc`, `scripts/build.js` | Cloudflare deploy: settings, and the copy of the app's files into `dist/` |
+| `tests/e2e.js` | End-to-end test on a phone-sized screen, plus the desktop layout |
+| `tests/upgrade.js` | Moving a phone from 1.6.0 to this build |
+| `next.config.js`, `wrangler.jsonc` | Build settings (static export) and Cloudflare deploy settings |
 
 ## First-time setup for mum
 

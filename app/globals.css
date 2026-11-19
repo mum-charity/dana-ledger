@@ -224,28 +224,6 @@ b, strong { font-weight: 700; }
 .banner-go { font-size: 1.6rem; color: var(--muted); }
 .banner-danger { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); font-weight: 600; }
 
-/* ------------------------------------------------------------ demo mode */
-.demo-bar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 8px;
-  padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
-  background: #2f5d8a;
-  color: #fff;
-  font-size: 0.88rem;
-}
-.demo-text { flex: 1 1 12em; }
-.demo-btn {
-  min-height: 40px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1.5px solid rgba(255, 255, 255, 0.7);
-  background: transparent;
-  color: #fff;
-  font-weight: 700;
-}
-
 /* ------------------------------------------------------------ home */
 .fund-card { text-align: left; width: 100%; gap: 8px; }
 .fund-card:active { background: var(--surface-2); }
@@ -607,6 +585,70 @@ select.input {
   .actions { flex-direction: row; }
 }
 
+/* ------------------------------------------------------------ desktop
+   A phone gets everything above. A wide screen (a laptop, or a tablet on its side) adds: the funds
+   down the left side, wider pages, the month page in two columns, and sheets as centred dialogs.
+   `screen` keeps all of this out of the printed year table. */
+.sidebar { display: none; }
+.month-cols, .month-list, .month-aside { display: contents; }
+
+@media screen and (min-width: 960px) {
+  #app { padding-left: 17rem; }
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: fixed;
+    top: 0; bottom: 0; left: 0;
+    width: 17rem;
+    padding: 14px 12px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    z-index: 11;
+  }
+  .side-brand { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 8px; margin-bottom: 8px; border: 0; background: none; font-size: 1.2rem; font-weight: 800; text-align: left; }
+  .side-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 11px; background: var(--primary); color: var(--primary-ink); font-size: 1.3rem; font-weight: 700; }
+  .side-funds { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .side-link { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 50px; padding: 8px 12px; border: 0; border-radius: var(--radius-sm); background: none; text-align: left; font-weight: 600; }
+  .side-link:hover { background: var(--surface-2); }
+  .side-link[aria-current="page"] { background: var(--primary-soft); color: var(--primary); }
+  .side-name { overflow-wrap: anywhere; }
+  .side-amt { font-size: 0.85rem; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .side-add { color: var(--primary); }
+
+  /* The side list has 设置, so the home page's own button would be a second one. */
+  .topbar-settings { display: none; }
+  .topbar { padding-left: 24px; padding-right: 24px; }
+  .tabs { max-width: 26rem; margin: 0; padding-left: 32px; padding-right: 0; }
+  .page { max-width: 46rem; margin: 0; padding: 18px 32px 110px; }
+  .page-home, .page-month { max-width: 68rem; }
+  .page-wide { max-width: none; }
+  .fund-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); align-items: start; }
+  .page-home > .btn-block, .page-home > .card.empty { max-width: 30rem; }
+  .page-month > .period-nav { max-width: 26rem; }
+  .page-month > .link-btn { align-self: flex-start; }
+
+  .month-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem); gap: 24px; align-items: start; }
+  .month-list, .month-aside { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+  /* Sheets become dialogs in the middle of the screen instead of sliding up from the bottom. */
+  .sheet {
+    left: 50%; right: auto; bottom: auto; top: 50%;
+    width: min(34rem, 92vw);
+    max-height: 88vh;
+    margin: 0;
+    border-radius: 24px;
+    padding-bottom: 18px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    transform: translate(-50%, -47%);
+    transition: transform .2s ease-out, opacity .2s;
+  }
+  #sheet.open .sheet { opacity: 1; transform: translate(-50%, -50%); }
+  #toast { left: calc(17rem + 12px); }
+}
+
 /* ------------------------------------------------------------ print (year table) */
 @media print {
   @page { size: A4 landscape; margin: 10mm; }
@@ -624,4 +666,3 @@ select.input {
   .year-totals { grid-template-columns: repeat(4, 1fr); }
   .year-totals div { border: 1px solid #999; padding: 4px 8px; }
 }
-@media print { .demo-bar { display: none !important; } }

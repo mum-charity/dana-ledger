@@ -1,21 +1,28 @@
-// End-to-end check of 善款簿 on a phone-sized viewport using the installed Edge.
-// Usage: npm install && npm run test:e2e   (uses the Microsoft Edge installed on this PC)
+// End-to-end check of 善款簿 on a phone-sized viewport using an installed browser.
+// Usage: npm install && npm run test:e2e   (Edge by default; E2E_CHANNEL=chrome uses Chrome)
 // The clock is fixed to 6 Nov 2026 so the month/balance assertions are stable.
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
 
-const appDir = path.resolve(process.argv[2] || path.join(__dirname, '..'));
+// Serves the built app in out/ (npm run build), or another folder given as the first argument.
+const appDir = path.resolve(process.argv[2] || path.join(__dirname, '..', 'out'));
 const shotDir = path.resolve(process.argv[3] || path.join(__dirname, '..', '.e2e-out'));
 fs.mkdirSync(shotDir, { recursive: true });
 
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.woff2': 'font/woff2', '.svg': 'image/svg+xml' };
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   // Redirect /index.html to / as Cloudflare does, so a service worker that caches the redirect fails here too.
   if (p.endsWith('/index.html')) { res.writeHead(307, { Location: p.slice(0, -'index.html'.length) }); return res.end(); }
-  if (p.startsWith('/backup/')) { res.writeHead(200); return res.end('{}'); } // stands in for the backup server
+  // Stands in for the backup server, and keeps what the app sent.
+  if (p.startsWith('/backup/')) {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => { if (req.method === 'PUT') backups.push({ path: p, body }); res.writeHead(200); res.end('{}'); });
+    return;
+  }
   if (p.endsWith('/')) p += 'index.html';
   const file = path.join(appDir, p);
   if (!file.startsWith(appDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('404'); }
@@ -23,6 +30,7 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 
+const backups = []; // every PUT /backup/<id> the app made
 let failures = 0;
 function check(cond, msg) {
   console.log((cond ? '  ok   ' : '  FAIL ') + msg);
@@ -38,10 +46,15 @@ function check(cond, msg) {
   // Keep the test's made-up records away from the real backup server.
   await context.addInitScript(() => { window.LEDGER_BACKUP_SERVER = location.origin; });
   const page = await context.newPage();
+  const outside = []; // requests to anywhere but the test server
+  context.on('request', (r) => { if (/^https?:/.test(r.url()) && !r.url().startsWith(base)) outside.push(r.url()); });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  const shot = (name) => page.screenshot({ path: path.join(shotDir, name + '.png'), fullPage: true });
+  // While offline the browser logs each backup attempt that can't connect. That one is expected;
+  // the offline section checks separately that nothing else was fetched.
+  let offline = false;
+  page.on('console', (m) => { if (m.type() === 'error' && !(offline && m.text().includes('ERR_INTERNET_DISCONNECTED'))) errors.push(m.text()); });
+  const shot = (name) => page.screenshot({ path: path.join(shotDir, name + '.png'), fullPage: true, animations: 'disabled' });
   const text = (sel) => page.locator(sel).first().innerText();
 
   await page.goto(base);
@@ -184,27 +197,63 @@ function check(cond, msg) {
 
   // offline
   await context.setOffline(true);
+  offline = true;
   await page.reload();
   await page.waitForSelector('.fund-card', { timeout: 5000 }).catch(() => {});
   check(await page.locator('.fund-card').isVisible(), 'app opens offline');
+  // Offline, every screen still works and nothing is fetched except the backup attempts.
+  const failed = [];
+  const onFailed = (r) => { if (!new URL(r.url()).pathname.startsWith('/backup/')) failed.push(r.url()); };
+  page.on('requestfailed', onFailed);
+  await page.click('.fund-card');
+  await page.waitForSelector('.people');
+  await page.locator('.person', { hasText: '陈美玲' }).locator('.person-main').click();
+  await page.waitForSelector('.sheet');
+  await page.goBack();
+  await page.waitForSelector('.sheet', { state: 'detached' });
+  await page.click('text=＋ 记录交钱 / 支出');
+  await page.fill('.sheet input[name=amount]', '1');
+  await page.click('.sheet button[type=submit]');
+  await page.waitForSelector('.sheet', { state: 'detached' });
+  await page.click('.prow:has-text("交钱")');
+  await page.waitForSelector('[data-action=payout-delete]');
+  await page.click('[data-action=payout-delete]');
+  await page.click('[data-action=confirm-yes]');
+  await page.waitForSelector('.sheet', { state: 'detached' });
+  await page.click('.tab:has-text("全年表")');
+  await page.waitForSelector('.grid');
+  await page.click('.tab:has-text("名单")');
+  await page.waitForSelector('.roster');
+  await page.click('text=返回');
+  await page.waitForSelector('.fund-card');
+  check((await text('.fund-card')).includes('RM 299'), 'offline: fund pages, sheets, saving and 返回 all work');
+  check(failed.length === 0, 'offline: the app fetched nothing' + (failed.length ? ': ' + failed.join(' | ') : ''));
+  page.off('requestfailed', onFailed);
+  offline = false;
   await context.setOffline(false);
 
-  // --- backup download
-  await page.click('text=设置');
-  await page.waitForSelector('text=保存备份文件');
-  const [bk] = await Promise.all([page.waitForEvent('download', { timeout: 5000 }).catch(() => null), page.click('text=保存备份文件')]);
-  if (bk) {
+  // --- automatic backup: the records reach the backup server by themselves
+  await page.waitForFunction(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:backup-status')).ok === true; } catch (_) { return false; } }, null, { timeout: 15000 }).catch(() => {});
+  const sent = backups[backups.length - 1];
+  const deviceId = await page.evaluate(() => localStorage.getItem('dana-ledger:device-id'));
+  check(!!sent && sent.path === '/backup/' + deviceId && /^[0-9a-f]{32}$/.test(deviceId), "records were sent to this phone's folder on the backup server");
+  if (sent) {
     const bkPath = path.join(shotDir, 'backup.json');
-    await bk.saveAs(bkPath);
-    const data = JSON.parse(fs.readFileSync(bkPath, 'utf8'));
-    check(data.app === 'dana-ledger' && data.data.receipts.length === 14, 'backup file has 14 receipts');
-    await shot('11-settings');
+    fs.writeFileSync(bkPath, sent.body);
+    const data = JSON.parse(sent.body);
+    check(data.app === 'dana-ledger' && data.data.receipts.length === 14, 'the backup has 14 receipts');
 
-    // --- restore: wipe the phone, restore from the backup file, everything comes back
+    // --- restore: wipe the phone, open the hidden 恢复记录 screen, load the backup, everything comes back
     await page.evaluate(() => localStorage.clear());
     await page.goto(base);
     await page.waitForSelector('text=欢迎使用善款簿');
     check(!(await page.locator('.fund-card').count()), 'wiped storage shows empty app');
+    await page.click('text=设置');
+    await page.waitForSelector('.about');
+    for (let i = 0; i < 5; i++) await page.click('.about');
+    await page.waitForSelector('text=从备份文件恢复');
+    check(page.url().includes('#/restore'), 'five taps on the version line open 恢复记录');
+    await shot('11-restore');
     await page.setInputFiles('#restore-file', bkPath);
     await page.waitForSelector('.confirm');
     check((await text('.confirm')).includes('14 笔收款'), 'restore confirm shows what is in the backup');
@@ -214,9 +263,9 @@ function check(cond, msg) {
     await page.reload();
     await page.waitForSelector('.fund-card');
     check((await text('.fund-card')).includes('RM 299'), 'restored data survives reload');
-    await page.click('text=设置');
-    await page.waitForSelector('text=保存备份文件');
-  } else check(false, 'backup download happened');
+  }
+  await page.click('text=设置');
+  await page.waitForSelector('[data-size=xlarge]');
 
   // --- font size: xlarge month page
   await page.click('[data-size=xlarge]');
@@ -233,39 +282,31 @@ function check(cond, msg) {
   await shot('13-month-dark');
   await page.emulateMedia({ colorScheme: 'light' });
 
-  // --- demo mode: sample data, kept apart from the real records
-  const realBefore = await page.evaluate(() => localStorage.getItem('dana-ledger:v1'));
-  await page.evaluate(() => {
-    const s = JSON.parse(localStorage.getItem('dana-ledger:v1'));
-    s.settings.fontSize = 'large';
-    localStorage.setItem('dana-ledger:v1', JSON.stringify(s));
-  });
-  const realKept = await page.evaluate(() => localStorage.getItem('dana-ledger:v1'));
-  await page.goto(base + '?demo');
-  await page.waitForSelector('.demo-bar');
-  check((await page.locator('.fund-card').count()) === 2, 'demo shows 2 sample funds');
-  check((await text('.fund-card')).includes('Bhante 医疗费用'), 'demo first fund is the medical fund');
-  await shot('20-demo-home');
-  await page.locator('.fund-card').first().click();
+  // --- desktop: the same app on a wide screen gets the funds down the side and two columns
+  check(!(await page.locator('.sidebar').isVisible()), 'phone width: no side list');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForSelector('.sidebar', { state: 'visible' });
+  check(!(await page.locator('.topbar-settings').isVisible()), 'desktop: 设置 is in the side list, not the top bar');
+  await page.locator('.sidebar .side-link', { hasText: 'Bhante 医疗费用' }).click();
   await page.waitForSelector('.people');
-  const paidNow = await page.locator('.person.is-paid').count();
-  const allNow = await page.locator('.person').count();
-  check(paidNow > 0 && paidNow < allNow, `demo month is partly ticked (${paidNow}/${allNow})`);
-  await shot('21-demo-month');
-  await page.locator('.person:not(.is-paid) .tick').first().click();
-  check((await page.locator('.person.is-paid').count()) === paidNow + 1, 'ticking works in demo');
+  const list = await page.locator('.month-list').boundingBox();
+  const aside = await page.locator('.month-aside').boundingBox();
+  check(!!list && !!aside && aside.x >= list.x + list.width, 'desktop: month page has the people on the left and 交钱 on the right');
+  await page.locator('.person .person-main').first().click();
+  await page.waitForSelector('#sheet.open .sheet');
+  const dlg = await page.locator('.sheet').boundingBox();
+  check(dlg.y > 0 && dlg.y + dlg.height < 800 && Math.abs(dlg.x + dlg.width / 2 - 640) < 2, 'desktop: the sheet is a dialog in the middle');
+  await shot('30-desktop-month-sheet');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.sheet', { state: 'detached' });
+  await shot('31-desktop-month');
   await page.click('.tab:has-text("全年表")');
   await page.waitForSelector('.grid');
-  await shot('22-demo-year');
-  await page.click('.tab:has-text("名单")');
-  await page.waitForSelector('.roster');
-  await shot('23-demo-people');
-  check((await page.evaluate(() => localStorage.getItem('dana-ledger:v1'))) === realKept, 'demo never touches the real records');
-  await page.click('[data-action=demo-exit]');
-  await page.waitForSelector('.fund-card');
-  check(!(await page.locator('.demo-bar').count()) && (await text('.fund-card')).includes('RM 299'), 'leaving demo returns to the real records');
-  check(!!realBefore, 'real records existed before demo');
+  await shot('32-desktop-year');
+  check(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'desktop: no horizontal page scroll');
+  await page.setViewportSize({ width: 390, height: 844 });
 
+  check(outside.length === 0, 'nothing was sent outside the test server' + (outside.length ? ': ' + outside.join(' | ') : ''));
   check(errors.length === 0, 'no console errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();
   server.close();

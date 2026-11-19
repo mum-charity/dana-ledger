@@ -1,24 +1,14 @@
 /*
  * 善款簿 service worker: makes the app open without internet.
- * Bump VERSION on every deploy so phones pick up the new files.
+ * scripts/build.js fills in VERSION (from package.json) and ASSETS (every file in out/) and
+ * writes the result to out/sw.js, so phones pick up the new files after every build.
  * It only caches the app's own files. Records live in localStorage and are never touched here.
  */
-const VERSION = '1.6.0';
+const VERSION = '__VERSION__';
 const CACHE = 'dana-ledger-' + VERSION;
 // './' is the page itself (index.html). Cache it as './', never './index.html': Cloudflare
 // redirects /index.html to /, and a browser refuses to open a page from a redirected response.
-const ASSETS = [
-  './',
-  './style.css',
-  './model.js',
-  './demo.js',
-  './app.js',
-  './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/icon-maskable-512.png',
-  './icons/apple-touch-icon.png',
-];
+const ASSETS = __ASSETS__;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
