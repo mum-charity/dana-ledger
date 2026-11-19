@@ -43,7 +43,9 @@ Still to do:
 - Try 2.0.0 on a real iPhone and Android phone before deploying. The tests run in desktop Chrome at a phone's size.
 - Find where 1.5.0 was deployed from. The live app went from 1.4.0 to 1.5.0 on 7–8 Nov from a copy outside this repo, and another deploy from there would replace anything deployed from here.
 - The backup server's log shows only two small test backups, on 7 and 8 Nov, and none since. Uploading works, but check that her real book arrives once she is using the app.
-- The Pi still runs the server as it was set up on 7 Nov. `server/` in this branch reads the rules from `lib/model.js`, so the next `sudo bash server/pi-setup.sh` on the Pi moves that file. This has not been run on the Pi.
+- The Pi still runs the server as it was set up on 7 Nov. `server/` in this branch is split into more files and reads the rules from `lib/model.js`; `sudo bash server/pi-setup.sh` installs that layout. This has not been run on the Pi.
+- Backups are to move from the Pi to AWS (an S3 bucket). The code is in `server/aws/` and passes its tests, but **nothing has been deployed to AWS yet**. The steps, including pointing the app's backup address at AWS, are in [server/aws/README.md](server/aws/README.md).
+- Once backups are on AWS, the app's messages that say 家里的服务器 (the server at home) will be wrong and need rewording.
 - Update the rest of this README for automatic backup. The sections below still mention 保存备份文件.
 - Decide what happens to GitHub Pages. **Don't merge this branch into `main` until then:** `main` is what GitHub Pages serves, and it would stop working.
 
@@ -71,7 +73,7 @@ npx http-server -c-1 out   # serves the built app, with offline mode, at http://
 **Open the app with `?demo` when trying things by hand.** Without it, anything you enter is sent to the real backup server as a new phone's backup.
 
 ```sh
-npm test                                   # unit tests for the money/balance rules
+npm test                                   # unit tests for the money/balance rules and the backup server
 npm run test:e2e                           # builds, then drives the real app on a phone-sized screen
 npm run build && node tests/upgrade.js     # a phone on 1.6.0 moves to this build and keeps its records
 ```
@@ -112,7 +114,10 @@ GitHub Pages currently serves 1.1.1 straight from the `main` branch. From 2.0.0 
 | `components/sheets.jsx` | The forms that slide up (dialogs on desktop) |
 | `scripts/sw.template.js`, `scripts/build.js` | Offline cache. The build fills in the file list and writes `out/sw.js` |
 | `public/manifest.webmanifest`, `public/icons/` | Home-screen install |
-| `server/` | The backup server that runs on the family's Raspberry Pi: the server itself, its systemd service, and `pi-setup.sh`, which installs both. It is not part of the app's build |
+| `server/backup-core.js` | The backup server's rules: what it accepts, refuses and keeps. Shared by the Pi and AWS versions. Not part of the app's build |
+| `server/backup-server.js`, `server/store-disk.js`, `server/pi-setup.sh`, `server/dana-backup.*` | The version that runs on the family's Raspberry Pi and keeps files on its disk, with its systemd service and installer |
+| `server/aws/` | The version for AWS, keeping backups in an S3 bucket. See [server/aws/README.md](server/aws/README.md) |
+| `tests/server.test.js` | Tests for the backup server, run against both the disk and S3 versions |
 | `tests/model.test.js` | Unit tests for balances, prepayments, import and CSV |
 | `tests/e2e.js` | End-to-end test on a phone-sized screen, plus the desktop layout |
 | `tests/upgrade.js` | Moving a phone from 1.6.0 to this build |

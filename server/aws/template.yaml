@@ -1,0 +1,237 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  善款簿 backup server: an API Gateway HTTP API, one Lambda function and a private S3 bucket.
+  Deploy with server/aws/deploy.sh, which also uploads the function's code.
+
+Parameters:
+  BackupToken:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: The key for reading backups back. Phones never need it.
+  AllowedOrigins:
+    Type: String
+    Default: https://mum.franklee.asia
+    Description: Sites the app runs on, comma-separated.
+  QuotaBytes:
+    Type: Number
+    Default: 1073741824
+    Description: All backups together. Once reached, new uploads are refused; nothing is deleted.
+  RequestsPerSecond:
+    Type: Number
+    Default: 2
+    Description: The most requests a second API Gateway lets through, from everyone together.
+  RequestBurst:
+    Type: Number
+    Default: 10
+  DomainName:
+    Type: String
+    Default: ''
+    Description: Optional. The address the app calls, such as mum-backup.franklee.asia. Needs CertificateArn.
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: Optional. An ACM certificate for DomainName, in this region.
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: Optional. Gets an email when this account's monthly bill passes MonthlyBudgetUSD.
+  MonthlyBudgetUSD:
+    Type: Number
+    Default: 5
+
+Conditions:
+  HasDomain: !And [!Not [!Equals [!Ref DomainName, '']], !Not [!Equals [!Ref CertificateArn, '']]]
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
+
+Resources:
+  # The backups. Private, encrypted, and kept even if this stack is deleted.
+  Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled # an overwritten object keeps its earlier copies
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: HttpsOnly
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt Bucket.Arn
+              - !Sub '${Bucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}'
+      RetentionInDays: 90
+
+  # The function may read, write and list backups. It has no permission to delete one.
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: backups
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${Bucket.Arn}/devices/*'
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt Bucket.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub '${LogGroup.Arn}:*'
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref AWS::StackName
+      Description: 善款簿 backup server
+      Runtime: nodejs22.x
+      Handler: server/aws/lambda.handler
+      MemorySize: 256
+      Timeout: 20
+      Role: !GetAtt FunctionRole.Arn
+      LoggingConfig:
+        LogGroup: !Ref LogGroup
+      Environment:
+        Variables:
+          BACKUP_TOKEN: !Ref BackupToken
+          BACKUP_BUCKET: !Ref Bucket
+          ALLOWED_ORIGINS: !Ref AllowedOrigins
+          QUOTA_BYTES: !Ref QuotaBytes
+      # A stand-in until deploy.sh uploads the real code (server/ and lib/model.js).
+      Code:
+        ZipFile: |
+          exports.handler = async () => ({ statusCode: 503, body: '{"error":"code not uploaded yet: run server/aws/deploy.sh"}' });
+
+  Api:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Ref AWS::StackName
+      ProtocolType: HTTP
+      # No CorsConfiguration here on purpose: the function answers CORS itself, in one place.
+
+  Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt Function.Arn
+      PayloadFormatVersion: '2.0'
+
+  Route:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: $default
+      Target: !Sub 'integrations/${Integration}'
+
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref Api
+      StageName: $default
+      AutoDeploy: true
+      # Uploads need no key, so this is what keeps a flood of them from running up a bill.
+      DefaultRouteSettings:
+        ThrottlingRateLimit: !Ref RequestsPerSecond
+        ThrottlingBurstLimit: !Ref RequestBurst
+
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*'
+
+  Domain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: HasDomain
+    Properties:
+      DomainName: !Ref DomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref CertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  DomainMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: HasDomain
+    DependsOn: Stage
+    Properties:
+      ApiId: !Ref Api
+      DomainName: !Ref Domain
+      Stage: $default
+
+  Budget:
+    Type: AWS::Budgets::Budget
+    Condition: HasAlertEmail
+    Properties:
+      Budget:
+        BudgetName: !Sub '${AWS::StackName}-monthly'
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUSD
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+
+Outputs:
+  ApiUrl:
+    Description: The server's own AWS address. Works before any DNS change.
+    Value: !GetAtt Api.ApiEndpoint
+  BucketName:
+    Value: !Ref Bucket
+  FunctionName:
+    Value: !Ref Function
+  DomainTarget:
+    Condition: HasDomain
+    Description: Point DomainName at this with a CNAME record (DNS only, not proxied).
+    Value: !GetAtt Domain.RegionalDomainName

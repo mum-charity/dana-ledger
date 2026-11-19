@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build && node scripts/build.js",
-    "test": "node --test tests/model.test.js",
+    "test": "node --test tests/model.test.js tests/server.test.js",
     "test:e2e": "npm run build && node tests/e2e.js",
     "deploy": "npm run build && npx -y wrangler@4.158.0 deploy"
   },

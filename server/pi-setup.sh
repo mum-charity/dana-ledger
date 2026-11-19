@@ -21,7 +21,7 @@ say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 die() { printf '\nStopped: %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "run it with sudo: sudo bash $0"
-[ -f "$SRC/lib/model.js" ] && [ -f "$SRC/server/backup-server.js" ] || die "lib/model.js and server/ aren't in $SRC; run it from a copy of the repo"
+[ -f "$SRC/lib/model.js" ] && [ -f "$SRC/server/backup-server.js" ] && [ -f "$SRC/server/backup-core.js" ] && [ -f "$SRC/server/store-disk.js" ] || die "lib/model.js and server/ aren't in $SRC; run it from a copy of the repo"
 
 # ------------------------------------------------------------------ 1. Node
 say "1/5 Node.js"
@@ -39,6 +39,8 @@ install -d -m 755 "$APP" "$APP/lib" "$APP/server"
 install -m 644 "$SRC/lib/model.js" "$APP/lib/model.js"
 rm -f "$APP/model.js" # where 1.x kept it
 install -m 644 "$SRC/server/backup-server.js" "$APP/server/backup-server.js"
+install -m 644 "$SRC/server/backup-core.js" "$APP/server/backup-core.js"
+install -m 644 "$SRC/server/store-disk.js" "$APP/server/store-disk.js"
 if grep -Eq '^BACKUP_TOKEN=.{32,}$' "$ENV_FILE" 2>/dev/null; then
   echo "Keeping the existing key for reading backups in $ENV_FILE."
 else
