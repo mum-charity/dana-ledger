@@ -1,4 +1,9 @@
 node_modules/
 .e2e-out/
 .wrangler/
-dist/
+.next/
+out/
+next-env.d.ts
+
+# Scans of the paper book: real names, phone numbers and bank details. Never commit.
+*.pdf

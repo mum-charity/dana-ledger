@@ -1,0 +1,26 @@
+# systemd service for the 善款簿 backup server on the Raspberry Pi.
+# Installed by server/pi-setup.sh.
+# Backups are kept in /var/lib/dana-backup (systemd creates it). Logs: journalctl -u dana-backup
+[Unit]
+Description=善款簿 backup server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/node /opt/charity-ledger/server/backup-server.js
+EnvironmentFile=/etc/dana-backup.env
+Environment=BACKUP_DIR=/var/lib/dana-backup
+StateDirectory=dana-backup
+Restart=always
+RestartSec=5
+
+# Run as a throwaway user that can write only its own backup folder.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target

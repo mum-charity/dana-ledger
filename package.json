@@ -1,15 +1,21 @@
 {
   "name": "dana-ledger",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "善款簿 — offline monthly donation ledger (PWA)",
   "scripts": {
-    "test": "node --test tests/model.test.js",
-    "test:e2e": "node tests/e2e.js",
-    "deploy": "node scripts/build.js && npx -y wrangler@4.158.0 deploy",
-    "build": "node scripts/build.js"
+    "dev": "next dev",
+    "build": "next build && node scripts/build.js",
+    "test": "node --test tests/model.test.js tests/server.test.js",
+    "test:e2e": "npm run build && node tests/e2e.js",
+    "deploy": "npm run build && npx -y wrangler@4.158.0 deploy"
   },
   "devDependencies": {
     "playwright-core": "1.55.0"
+  },
+  "dependencies": {
+    "next": "^16.4.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   }
 }
