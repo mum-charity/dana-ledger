@@ -216,3 +216,77 @@ test('share text summarises the month', () => {
   assert.match(t, /交出 7\/5：RM 10（交给 Bhante）/);
   assert.ok(b);
 });
+
+// ---------------------------------------------------------------- offerings (供养)
+function lunch(s, over = {}) {
+  return L.addOffering(s, {
+    date: '2026-11-14',
+    recipient: '法悦林僧团午餐',
+    lines: [{ name: '吴晶晶', amount: 100 }, { name: '吴美璇', amount: 790 }, { name: '李伟铨', amount: 1000 }, { name: '没给的人', amount: null }],
+    dedication: '吴门历代祖先\n十方法界一切众生',
+    ...over,
+  });
+}
+
+test('an offering keeps the people who gave, adds them up, and touches no fund', () => {
+  const { s, fund } = setup();
+  const before = L.cashOnHand(s, fund.id);
+  const o = lunch(s);
+  assert.deepEqual(o.lines.map((l) => l.name), ['吴晶晶', '吴美璇', '李伟铨'], 'a name with no amount is left out');
+  assert.equal(L.offeringTotal(o), 1890);
+  assert.equal(o.dedication, '吴门历代祖先\n十方法界一切众生', 'the dedication keeps its lines');
+  assert.equal(L.cashOnHand(s, fund.id), before);
+  assert.equal(s.receipts.length, 0);
+});
+
+test('an offering needs a date, who it is for, and at least one amount', () => {
+  const { s } = setup();
+  assert.throws(() => lunch(s, { date: '14/11/2026' }), /日期/);
+  assert.throws(() => lunch(s, { recipient: '  ' }), /供养给谁/);
+  assert.throws(() => lunch(s, { lines: [{ name: '吴晶晶', amount: null }] }), /至少/);
+  assert.throws(() => lunch(s, { lines: [{ name: '', amount: 500 }] }), /名字/);
+  assert.throws(() => lunch(s, { lines: [{ name: '吴晶晶', amount: -5 }] }), /金额/);
+  assert.equal(s.offerings.length, 0, 'nothing was saved');
+});
+
+test('offerings list newest first, and can be changed, deleted and put back', () => {
+  const { s } = setup();
+  const a = lunch(s, { date: '2026-11-13' });
+  const b = lunch(s, { date: '2026-11-15' });
+  assert.deepEqual(L.offeringsSorted(s).map((o) => o.date), ['2026-11-15', '2026-11-13']);
+  L.updateOffering(s, a.id, { date: '2026-11-17', recipient: 'General Fund', lines: [{ name: '吴晶晶', amount: 3000 }] });
+  assert.equal(L.getOffering(s, a.id).recipient, 'General Fund');
+  assert.equal(L.offeringsSorted(s)[0].id, a.id);
+  const removed = L.removeOffering(s, b.id);
+  assert.equal(s.offerings.length, 1);
+  L.restoreOffering(s, removed);
+  L.restoreOffering(s, removed);
+  assert.equal(s.offerings.length, 2, 'putting it back twice adds it once');
+});
+
+test('offerings survive a backup, and a backup from before offerings still loads', () => {
+  const { s } = setup();
+  const o = lunch(s);
+  const { state, dropped } = L.normalizeState(JSON.parse(L.backupJSON(s)));
+  assert.equal(dropped, 0);
+  assert.deepEqual(state.offerings, [{ id: o.id, date: o.date, recipient: o.recipient, lines: o.lines, dedication: o.dedication, note: '', createdAt: o.createdAt }]);
+
+  const old = JSON.parse(L.backupJSON(s));
+  delete old.data.offerings;
+  assert.deepEqual(L.normalizeState(old).state.offerings, [], 'a 2.0.0 backup has no offerings');
+
+  const bad = JSON.parse(L.backupJSON(s));
+  bad.data.offerings.push({ id: 'x', date: 'nope', recipient: 'A', lines: [{ name: 'a', amount: 1 }] }, { id: o.id, date: o.date, recipient: 'copy', lines: o.lines }, { id: 'y', date: o.date, recipient: 'A', lines: [] });
+  const cleaned = L.normalizeState(bad);
+  assert.equal(cleaned.dropped, 3, 'bad date, repeated id and no lines are dropped');
+  assert.equal(cleaned.state.offerings.length, 1);
+});
+
+test('offering share text lists everyone, the total and the dedication', () => {
+  const { s } = setup();
+  const t = L.offeringShareText(lunch(s));
+  assert.match(t, /【供养 法悦林僧团午餐】14\/11\/2026/);
+  assert.match(t, /吴美璇：7\.90/);
+  assert.match(t, /合计：RM 18\.90/);
+  assert.match(t, /回向功德给：\n吴门历代祖先/);
+});

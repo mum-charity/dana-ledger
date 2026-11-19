@@ -5,6 +5,7 @@
 A small offline web app (PWA) for keeping a monthly donation book. It works like a paper book:
 
 - Each **fund** (项目) has a numbered list of people. Each person gives a set amount every month, or a different amount each time.
+- **供养记录:** one entry for each offering, for example a monks' lunch: the date, who it was offered to, what each person gave, and who the merit is dedicated to. A new entry starts with the last entry's names and dedication, so only the amounts need typing. Offerings are separate from the funds and never change the money a fund should be holding.
 - **Month page (每月):** tap the box next to a name to tick that month as paid. Undo appears for a few seconds. One payment can cover several months (e.g. 已付全年).
 - **Money handed over (交钱 / 支出):** record the date, amount and who it went to. Small spending like 做茶点 goes here too.
 - **Year table (全年表):** a Jan–Dec grid with monthly totals, money handed over, dates and running balance. It can be printed or saved as a PDF, or exported to Excel (CSV).

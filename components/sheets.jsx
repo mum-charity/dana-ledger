@@ -1,7 +1,7 @@
 'use client';
 /* 善款簿 — the sheets that slide up from the bottom: one form each. */
 import { useRef, useState } from 'react';
-import { S, L, mutate, money, cur, thisYear, nav, closeSheet, confirmBox, showToast, phone } from './store';
+import { S, L, mutate, money, cur, thisYear, nav, closeSheet, confirmBox, showToast, shareText, phone } from './store';
 
 /** A named control inside a form (avoids clashes like form.name). */
 const field = (form, name) => form.elements.namedItem(name);
@@ -177,6 +177,93 @@ function PayoutSheet({ fundId, id, month }) {
       <div className="sheet-actions">
         <button type="submit" className="btn btn-primary btn-block">保存</button>
         {p ? <button type="button" className="btn btn-danger btn-block" data-action="payout-delete" onClick={remove}>删除这笔记录</button> : null}
+      </div>
+    </SheetShell>
+  );
+}
+
+// ---------------------------------------------------------------- offering sheet
+/**
+ * One 供养. The same people give most days and the dedication hardly changes, so a new one starts
+ * with the last one's names (amounts empty) and its dedication. A row left without an amount is
+ * someone who did not give that day, and is not saved.
+ */
+function OfferingSheet({ id }) {
+  const { o, last, recipients } = useOpened(() => ({
+    o: id ? L.getOffering(S.state, id) : null,
+    last: L.offeringsSorted(S.state)[0] || null,
+    recipients: [...new Set(L.offeringsSorted(S.state).map((x) => x.recipient))].slice(0, 12),
+  }));
+  const seq = useRef(0);
+  const row = (name = '', amount = '') => ({ key: ++seq.current, name, amount });
+  const [rows, setRows] = useState(() => {
+    if (o) return o.lines.map((l) => row(l.name, L.fmtPlain(l.amount)));
+    if (last) return last.lines.map((l) => row(l.name));
+    return [row(), row(), row()];
+  });
+  const [error, setError] = useState('');
+  const setRow = (key, patch) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const total = rows.reduce((t, r) => t + (L.parseAmount(r.amount) || 0), 0);
+
+  const submit = (form) => {
+    setError('');
+    const lines = [];
+    for (const r of rows) {
+      if (!r.amount.trim()) continue;
+      const amount = L.parseAmount(r.amount);
+      if (!amount) return setError(`「${r.name.trim() || '没有名字的那一行'}」的金额不对`);
+      lines.push({ name: r.name, amount });
+    }
+    const data = { date: field(form, 'date').value, recipient: field(form, 'recipient').value, lines, dedication: field(form, 'dedication').value, note: field(form, 'note').value };
+    try {
+      mutate((s) => (o ? L.updateOffering(s, o.id, data) : L.addOffering(s, data)));
+    } catch (e) {
+      return setError(e.message);
+    }
+    closeSheet();
+    showToast(o ? '已修改' : `已记录供养 ${money(total)}`);
+  };
+
+  const remove = async () => {
+    const yes = await confirmBox({ title: '删除这笔供养记录？', message: `${L.shortDate(o.date)} ${o.recipient} ${money(L.offeringTotal(o))}`, ok: '是，删除', danger: true });
+    if (!yes) return;
+    const removed = mutate((s) => L.removeOffering(s, o.id));
+    closeSheet();
+    showToast('已删除', { actionLabel: '撤销', action: () => mutate((s) => L.restoreOffering(s, removed)) });
+  };
+
+  return (
+    <SheetShell title={o ? '修改供养' : '记录供养'} error={error} onSubmit={submit}>
+      <label className="field"><span className="field-label">日期</span>
+        <input className="input" type="date" name="date" defaultValue={o ? o.date : L.todayISO()} /></label>
+      <label className="field"><span className="field-label">供养给谁</span>
+        <input className="input" name="recipient" list="offering-recipients" defaultValue={o ? o.recipient : ''} placeholder="例如：法悦林僧团午餐" autoComplete="off" data-autofocus={o ? undefined : ''} /></label>
+      <datalist id="offering-recipients">{recipients.map((n) => <option key={n} value={n} />)}</datalist>
+
+      <div className="field">
+        <span className="field-label">{`谁出多少（${cur()}）`}</span>
+        {!o && last ? <p className="hint">名字照上一次的。今天没出的人，金额留空就可以。</p> : null}
+        <ul className="olines">
+          {rows.map((r, i) => (
+            <li key={r.key} className="oline">
+              <input className="input" aria-label={`第 ${i + 1} 个名字`} data-role="oline-name" value={r.name} placeholder="名字" autoComplete="off" onChange={(e) => setRow(r.key, { name: e.target.value })} />
+              <input className="input oline-amt" aria-label={`${r.name || `第 ${i + 1} 个人`} 的金额`} data-role="oline-amount" value={r.amount} placeholder="0" inputMode="decimal" autoComplete="off" onChange={(e) => setRow(r.key, { amount: e.target.value })} />
+              <button type="button" className="oline-x" aria-label={`拿掉 ${r.name || `第 ${i + 1} 行`}`} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}>✕</button>
+            </li>
+          ))}
+        </ul>
+        <button type="button" className="btn btn-ghost btn-block" data-action="oline-add" onClick={() => setRows((rs) => [...rs, row()])}>＋ 加一个人</button>
+        <p className="ototal" data-role="offering-total"><span>合计</span><b>{money(total)}</b></p>
+      </div>
+
+      <label className="field"><span className="field-label">回向功德给</span>
+        <textarea className="input textarea" name="dedication" defaultValue={o ? o.dedication : last ? last.dedication : ''} placeholder={'一行一个，例如：\n吴门历代祖先\n十方法界一切众生'} /></label>
+      <label className="field"><span className="field-label">备注</span>
+        <input className="input" name="note" defaultValue={o ? o.note : ''} placeholder="例如：General Fund 收据号码" autoComplete="off" /></label>
+      <div className="sheet-actions">
+        <button type="submit" className="btn btn-primary btn-block">保存</button>
+        {o ? <button type="button" className="btn btn-secondary btn-block" data-action="offering-share" onClick={() => shareText(L.offeringShareText(o, cur()))}>分享这次供养（WhatsApp）</button> : null}
+        {o ? <button type="button" className="btn btn-danger btn-block" data-action="offering-delete" onClick={remove}>删除这笔记录</button> : null}
       </div>
     </SheetShell>
   );
@@ -390,6 +477,7 @@ function InstallSheet() {
 export const SHEETS = {
   receipt: ReceiptSheet,
   payout: PayoutSheet,
+  offering: OfferingSheet,
   member: MemberSheet,
   bulk: BulkSheet,
   fund: FundSheet,

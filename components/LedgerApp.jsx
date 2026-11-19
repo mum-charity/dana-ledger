@@ -23,6 +23,7 @@ export default function LedgerApp() {
     if (r.name === 'month') view = <MonthView fund={r.fund} month={r.month} />;
     else if (r.name === 'year') view = <YearView fund={r.fund} year={r.year} />;
     else if (r.name === 'people') view = <PeopleView fund={r.fund} />;
+    else if (r.name === 'offerings') view = <OfferingsView />;
     else if (r.name === 'settings') view = <SettingsView />;
     else if (r.name === 'restore') view = <RestoreView />;
     else view = <HomeView />;
@@ -132,6 +133,7 @@ function Sidebar({ r }) {
           </button>
         ))}
         <button className="side-link side-add" onClick={() => openSheet('fund', { id: null })}>＋ 新增项目</button>
+        <button className="side-link" data-action="side-offerings" aria-current={r.name === 'offerings' ? 'page' : 'false'} onClick={go('#/offerings')}><span className="side-name">供养记录</span></button>
       </nav>
       <button className="side-link" aria-current={r.name === 'settings' || r.name === 'restore' ? 'page' : 'false'} onClick={go('#/settings')}><span className="side-name">设置</span></button>
     </aside>
@@ -184,6 +186,60 @@ function HomeView() {
             <button className="btn btn-ghost btn-block" data-action="fund-new" onClick={() => openSheet('fund', { id: null })}>＋ 新增项目</button>
           </>
         )}
+        <OfferingsCard month={month} />
+      </main>
+    </>
+  );
+}
+
+/** The way into 供养记录 from the home page, with this month's count and total. */
+function OfferingsCard({ month }) {
+  const mine = S.state.offerings.filter((o) => o.date.slice(0, 7) === month);
+  const total = mine.reduce((t, o) => t + L.offeringTotal(o), 0);
+  return (
+    <button className="card offerings-card" data-action="offerings-open" onClick={go('#/offerings')}>
+      <span className="fund-name">供养记录</span>
+      <span className="fund-row"><span>{mine.length ? <>本月 <b>{mine.length}</b> 次</> : '每天的供养、谁出多少、回向给谁'}</span>{mine.length ? <b>{money(total)}</b> : <span aria-hidden="true">›</span>}</span>
+    </button>
+  );
+}
+
+// ================================================================ offerings (供养)
+function OfferingsView() {
+  const list = L.offeringsSorted(S.state);
+  const months = [];
+  for (const o of list) {
+    const mo = o.date.slice(0, 7);
+    if (!months.length || months[months.length - 1].month !== mo) months.push({ month: mo, items: [] });
+    months[months.length - 1].items.push(o);
+  }
+  return (
+    <>
+      <Topbar title="供养记录" back />
+      <main className="page page-offerings">
+        <button className="btn btn-primary btn-block" data-action="offering-new" onClick={() => openSheet('offering', { id: null })}>＋ 记录供养</button>
+        {!list.length && (
+          <section className="card empty">
+            <p>这里记每一次供养，例如僧团午餐：日期、供养给谁、每个人出多少、回向功德给谁。</p>
+            <p className="muted">供养记录和每月善款的项目分开，不会影响项目里「手上应有」的钱。</p>
+          </section>
+        )}
+        {months.map(({ month, items }) => (
+          <section className="card" key={month}>
+            <h3 className="card-title offering-month"><span>{L.monthLabel(month)}</span><span>{`${items.length} 次 · ${money(items.reduce((t, o) => t + L.offeringTotal(o), 0))}`}</span></h3>
+            <ul className="plist">
+              {items.map((o) => (
+                <li key={o.id}>
+                  <button className="prow offering-row" onClick={() => openSheet('offering', { id: o.id })}>
+                    <span className="pdate">{L.shortDate(o.date)}</span>
+                    <span className="pnote">{o.recipient}<span className="offering-sub">{`${o.lines.length} 人`}</span></span>
+                    <span className="pamt offering-amt">{money(L.offeringTotal(o))}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
       </main>
     </>
   );
@@ -540,7 +596,7 @@ function SettingsView() {
  */
 function RestoreView() {
   const state = S.state;
-  const counts = `${state.funds.length} 个项目 · ${state.members.length} 人 · ${state.receipts.length} 笔收款 · ${state.payouts.length} 笔交出`;
+  const counts = `${state.funds.length} 个项目 · ${state.members.length} 人 · ${state.receipts.length} 笔收款 · ${state.payouts.length} 笔交出 · ${state.offerings.length} 次供养`;
   const when = (t) => new Date(t).toLocaleString('zh-CN');
   const ss = serverStatus();
   let autoState;

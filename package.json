@@ -1,6 +1,6 @@
 {
   "name": "dana-ledger",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "private": true,
   "description": "善款簿 — offline monthly donation ledger (PWA)",
   "scripts": {
