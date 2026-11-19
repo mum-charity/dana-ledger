@@ -2,8 +2,6 @@
 
 **App link:** https://mum.franklee.asia/
 
-The same app is also on GitHub Pages at https://mum-charity.github.io/dana-ledger/. Each address keeps its own records, so she should use only one of them. To move records from one to the other, save a backup at the old address and restore it at the new one.
-
 A small offline web app (PWA) for keeping a monthly donation book. It works like a paper book:
 
 - Each **fund** (项目) has a numbered list of people. Each person gives a set amount every month, or a different amount each time.
@@ -23,9 +21,8 @@ https://mum.franklee.asia/ runs version 2.0.1, deployed from the `dev` branch on
 | Copy | Version | Backup |
 |---|---|---|
 | https://mum.franklee.asia/ | 2.0.1 | Automatic, to the family's backup server |
-| GitHub Pages | 1.1.1 | Manual backup file |
 | Branch `dev` | 2.0.1 | Automatic |
-| Branch `main` | 1.1.1 | Manual backup file |
+| Branch `main` | 2.0.1 | Automatic |
 
 To go back to 1.5.0: `npx wrangler@4.158.0 rollback cff2a828-edf0-41cd-81eb-416fa8cb617a`. The tag `pi-server-as-installed` keeps 1.6.0 with the backup server's files exactly as they were installed on the Pi.
 
@@ -34,18 +31,16 @@ What 2.0.0 changes:
 - The screens are React components in `components/`. The money rules in `lib/model.js` are unchanged, and so is everything saved on the phone, so her records and her folder on the backup server carry over. `tests/upgrade.js` checks this.
 - On a phone it looks the same as 1.6.0. On a wide screen (960px and up) the funds are listed down the left side, the month page has two columns, and sheets open as dialogs in the middle.
 - It is still only static files with no server code of its own. Backups still go to the family's backup server.
-- It now needs a build step (`npm run build`), so GitHub Pages can no longer serve it straight from a branch. See [Deploy (GitHub Pages)](#deploy-github-pages).
+- It now needs a build step (`npm run build`). The copy that used to be on GitHub Pages was 1.1.1 served straight from `main`; GitHub Pages was turned off on 19 Nov 2026, so mum.franklee.asia is the only address.
 
 Since 1.4.0 the app sends records to the backup server by itself whenever there is signal, and the 保存备份文件 button is gone. A backup file can only be restored from a hidden screen: tap the version line in 设置 five times.
 
 Still to do:
 
-- Try 2.0.0 on a real iPhone and Android phone. The tests run in desktop Chrome at a phone's size.
+- Try 2.0.1 on a real iPhone and Android phone. The tests run in desktop Chrome at a phone's size.
 - Find where 1.5.0 was deployed from. The live app went from 1.4.0 to 1.5.0 on 7–8 Nov from a copy outside this repo, and another deploy from there would replace anything deployed from here.
 - The backup server's log shows only two small test backups, on 7 and 8 Nov, and none since. Uploading works, but check that her real book arrives once she is using the app.
-- The Pi still runs the server as it was set up on 7 Nov. `server/` in this branch is split into more files and reads the rules from `lib/model.js`; `sudo bash server/pi-setup.sh` installs that layout. This has not been run on the Pi.
 - Backups moved from the Pi to AWS (an S3 bucket) on 19 Nov: the app's backup address now points at the server in [server/aws/](server/aws/README.md). The Pi's backup service is still running but unused; stopping it is [issue #8](https://github.com/mum-charity/dana-ledger/issues/8).
-- Decide what happens to GitHub Pages. **Don't merge this branch into `main` until then:** `main` is what GitHub Pages serves, and it would stop working.
 
 ## Where the data lives
 
@@ -92,9 +87,7 @@ npm run deploy               # builds the app into out/, then uploads it
 
 `npm run deploy` uploads only `out/`, so the README, tests and `node_modules` stay private. Cloudflare redirects `/index.html` to `/`, so the service worker caches the page as `./`. The end-to-end test's server does the same redirect.
 
-## Deploy (GitHub Pages)
-
-GitHub Pages currently serves 1.1.1 straight from the `main` branch. From 2.0.0 the app has to be built first, so that no longer works. To keep a GitHub Pages copy, add a GitHub Actions workflow that runs `BASE_PATH=/dana-ledger npm run build` and publishes `out/`. `BASE_PATH` is needed because the app sits under `/dana-ledger/` there. This has not been set up.
+## Releasing a change
 
 **Every time you change the app:** bump `version` in `package.json`. That is the number shown in 设置. Phones pick up a new build either way, because `npm run build` gives the offline cache a new name whenever any file changes. The next time she opens the app it updates and shows 「善款簿已更新」.
 
