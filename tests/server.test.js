@@ -110,6 +110,19 @@ for (const [kind, make] of Object.entries(STORES)) {
     st.cleanup();
   });
 
+  test(`${kind}: a change to the offerings alone is a new version`, async () => {
+    const { st, service, call } = setup();
+    const svc = service();
+    const withLunch = JSON.parse(book(1));
+    L.addOffering(withLunch.data, { date: '2026-11-14', recipient: '僧团午餐', lines: [{ name: '吴晶晶', amount: 100 }] });
+    const text = JSON.stringify(withLunch);
+    assert.equal((await call(svc, 'PUT', `/backup/${DEVICE}`, { body: book(1) })).status, 201);
+    assert.equal((await call(svc, 'PUT', `/backup/${DEVICE}`, { body: text })).status, 201, 'not mistaken for the same backup');
+    assert.deepEqual(JSON.parse((await call(svc, 'PUT', `/backup/${DEVICE}`, { body: text })).body), { unchanged: true });
+    assert.equal((await call(svc, 'GET', `/backups/${DEVICE}/latest`, { headers: key })).body, text);
+    st.cleanup();
+  });
+
   test(`${kind}: after a restart it still knows what it has`, async () => {
     const { st, service, call } = setup();
     await call(service(), 'PUT', `/backup/${DEVICE}`, { body: book(2) });

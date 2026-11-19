@@ -233,6 +233,7 @@ export function route() {
     if (parts[2] === 'p') return { name: 'people', fund };
     return { name: 'month', fund, month: L.isMonth(parts[3]) ? parts[3] : L.currentMonth() };
   }
+  if (parts[0] === 'offerings') return { name: 'offerings' };
   if (parts[0] === 'settings') return { name: 'settings' };
   if (parts[0] === 'restore') return { name: 'restore' };
   return { name: 'home' };

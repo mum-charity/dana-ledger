@@ -282,6 +282,62 @@ function check(cond, msg) {
   await shot('13-month-dark');
   await page.emulateMedia({ colorScheme: 'light' });
 
+  // --- 供养记录: a day's offering with who gave what; the next one starts with the same names
+  await page.goto(base + '#/');
+  await page.waitForSelector('.fund-card');
+  const cashBefore = await text('.fund-card');
+  await page.click('[data-action=offerings-open]');
+  await page.waitForSelector('[data-action=offering-new]');
+  check((await text('.page-offerings')).includes('不会影响'), 'empty 供养记录 explains itself');
+  await page.click('[data-action=offering-new]');
+  await page.waitForSelector('.sheet [name=recipient]');
+  await page.fill('.sheet [name=date]', '2026-11-05');
+  await page.fill('.sheet [name=recipient]', '法悦林僧团午餐');
+  const fillRow = async (i, name, amount) => {
+    await page.locator('[data-role=oline-name]').nth(i).fill(name);
+    await page.locator('[data-role=oline-amount]').nth(i).fill(amount);
+  };
+  await fillRow(0, '吴晶晶', '1');
+  await fillRow(1, '吴美璇', '7.90');
+  await page.locator('[data-role=oline-name]').nth(2).fill('今天没出的人');
+  await page.click('[data-action=oline-add]');
+  await fillRow(3, '李伟铨', '10');
+  check((await text('[data-role=offering-total]')).includes('18.90'), 'the form adds the amounts up as she types');
+  await page.fill('.sheet [name=dedication]', '吴门历代祖先\n十方法界一切众生');
+  await shot('40-offering-form');
+  await page.click('.sheet button[type=submit]');
+  await page.waitForSelector('.offering-row');
+  check((await text('.offering-row')).includes('法悦林僧团午餐') && (await text('.offering-row')).includes('RM 18.90') && (await text('.offering-row')).includes('3 人'), 'the offering is listed with its total and 3 people');
+  await shot('41-offerings');
+  await page.click('[data-action=offering-new]');
+  await page.waitForSelector('.sheet [name=recipient]');
+  const prefilled = await page.locator('[data-role=oline-name]').evaluateAll((els) => els.map((e) => e.value));
+  const emptyAmounts = await page.locator('[data-role=oline-amount]').evaluateAll((els) => els.every((e) => e.value === ''));
+  check(prefilled.join() === '吴晶晶,吴美璇,李伟铨' && emptyAmounts, 'a new offering starts with last time\'s names and no amounts');
+  check((await page.inputValue('.sheet [name=dedication]')).includes('十方法界一切众生'), 'and with last time\'s dedication');
+  await page.fill('.sheet [name=recipient]', 'Wat');
+  await page.click('.sheet button[type=submit]');
+  await page.waitForFunction(() => document.querySelector('.form-error').innerText.includes('至少'), null, { timeout: 5000 }).catch(() => {});
+  check((await text('.form-error')).includes('至少'), 'saving with no amounts is refused');
+  await page.keyboard.press('Escape'); // the form is scrolled to the bottom here, so close it from the keyboard
+  await page.waitForSelector('.sheet', { state: 'detached' });
+  await page.locator('.offering-row').first().click();
+  await page.waitForSelector('[data-action=offering-delete]');
+  await page.locator('[data-role=oline-amount]').nth(0).fill('2');
+  await page.click('.sheet button[type=submit]');
+  await page.waitForFunction(() => document.querySelector('.offering-row') && document.querySelector('.offering-row').innerText.includes('19.90'));
+  check(true, 'changing an amount changes the total to RM 19.90');
+  await page.goto(base + '#/');
+  await page.waitForSelector('.offerings-card');
+  check((await text('.offerings-card')).includes('RM 19.90'), 'home shows this month\'s offerings');
+  check((await text('.fund-card')) === cashBefore, 'the fund\'s money is untouched by an offering');
+  const lastSent = () => (JSON.parse(backups[backups.length - 1].body).data.offerings || []);
+  for (let i = 0; i < 60 && !(lastSent()[0] && lastSent()[0].lines[0].amount === 200); i++) await new Promise((r) => setTimeout(r, 250));
+  check(lastSent().length === 1 && lastSent()[0].lines.length === 3 && lastSent()[0].lines[0].amount === 200, 'the offering reaches the backup server' + (lastSent().length ? '' : ': ' + await page.evaluate(() => localStorage.getItem('dana-ledger:backup-status') + ' pending=' + localStorage.getItem('dana-ledger:backup-pending'))));
+  await page.reload();
+  await page.waitForSelector('.offerings-card');
+  check((await text('.offerings-card')).includes('RM 19.90'), 'the offering survives a reload');
+
   // --- desktop: the same app on a wide screen gets the funds down the side and two columns
   check(!(await page.locator('.sidebar').isVisible()), 'phone width: no side list');
   await page.setViewportSize({ width: 1280, height: 800 });
