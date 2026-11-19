@@ -2,13 +2,16 @@
  * Keeps backups as files on this computer's disk (the Raspberry Pi):
  *   <dir>/devices/<device>/<time>-<hash>.json   every version
  *   <dir>/devices/<device>/latest.json          the newest one again
+ *   <dir>/books/<id>.json                       a shared book, for new phones to load
  */
-'use strict';
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import type { DeviceEntry, Store } from './backup-core.ts';
+
+const isMissing = (e: unknown): boolean => (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
 
 /** Write a file so a crash or power cut leaves either the old file or the whole new one. */
-async function writeFileDurably(file, text) {
+async function writeFileDurably(file: string, text: string): Promise<void> {
   const tmp = `${file}.${process.pid}.tmp`;
   const fh = await fs.promises.open(tmp, 'w');
   try {
@@ -20,10 +23,21 @@ async function writeFileDurably(file, text) {
   await fs.promises.rename(tmp, file);
 }
 
-function createDiskStore(dir) {
+async function readOrNull(file: string): Promise<string | null> {
+  try {
+    return await fs.promises.readFile(file, 'utf8');
+  } catch (e) {
+    if (isMissing(e)) return null;
+    throw e;
+  }
+}
+
+export function createDiskStore(dir: string): Store {
   const devicesDir = path.join(dir, 'devices');
   fs.mkdirSync(devicesDir, { recursive: true });
-  const latestFile = (device) => path.join(devicesDir, device, 'latest.json');
+  const latestFile = (device: string) => path.join(devicesDir, device, 'latest.json');
+  const booksDir = path.join(dir, 'books');
+  const bookFile = (id: string) => path.join(booksDir, `${id}.json`);
 
   // Bytes already stored, so the quota holds across restarts.
   let used = 0;
@@ -32,17 +46,10 @@ function createDiskStore(dir) {
     for (const f of fs.readdirSync(path.join(devicesDir, d.name))) used += fs.statSync(path.join(devicesDir, d.name, f)).size;
   }
 
-  const latestSize = (device) => fs.promises.stat(latestFile(device)).then((s) => s.size, () => 0);
+  const latestSize = (device: string): Promise<number> => fs.promises.stat(latestFile(device)).then((s) => s.size, () => 0);
 
   return {
-    async getLatest(device) {
-      try {
-        return await fs.promises.readFile(latestFile(device), 'utf8');
-      } catch (e) {
-        if (e.code === 'ENOENT') return null;
-        throw e;
-      }
-    },
+    getLatest: (device) => readOrNull(latestFile(device)),
     latestSize,
     async usedBytes() {
       return used;
@@ -56,10 +63,15 @@ function createDiskStore(dir) {
       await writeFileDurably(latestFile(device), text);
       used += growth;
     },
+    getBook: (id) => readOrNull(bookFile(id)),
+    async saveBook(id, text) {
+      await fs.promises.mkdir(booksDir, { recursive: true });
+      await writeFileDurably(bookFile(id), text);
+    },
     async list() {
-      const out = [];
+      const out: DeviceEntry[] = [];
       for (const device of await fs.promises.readdir(devicesDir)) {
-        let stat;
+        let stat: fs.Stats;
         try {
           stat = await fs.promises.stat(latestFile(device));
         } catch (_) {
@@ -72,5 +84,3 @@ function createDiskStore(dir) {
     },
   };
 }
-
-module.exports = { createDiskStore };

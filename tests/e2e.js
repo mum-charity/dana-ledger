@@ -23,6 +23,12 @@ const server = http.createServer((req, res) => {
     req.on('end', () => { if (req.method === 'PUT') backups.push({ path: p, body }); res.writeHead(200); res.end('{}'); });
     return;
   }
+  // The family's book, published under a setup code: only that code opens it.
+  if (p.startsWith('/book/')) {
+    const found = req.method === 'GET' && p === '/book/' + SETUP_CODE && sharedBook;
+    res.writeHead(found ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(found ? sharedBook : '{"error":"no book under this code"}');
+  }
   if (p.endsWith('/')) p += 'index.html';
   const file = path.join(appDir, p);
   if (!file.startsWith(appDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('404'); }
@@ -31,6 +37,8 @@ const server = http.createServer((req, res) => {
 });
 
 const backups = []; // every PUT /backup/<id> the app made
+const SETUP_CODE = '5e7'.padEnd(32, 'c'); // a setup code, as the family would make
+let sharedBook = null; // the book the family published under it
 let failures = 0;
 function check(cond, msg) {
   console.log((cond ? '  ok   ' : '  FAIL ') + msg);
@@ -53,7 +61,9 @@ function check(cond, msg) {
   // While offline the browser logs each backup attempt that can't connect. That one is expected;
   // the offline section checks separately that nothing else was fetched.
   let offline = false;
-  page.on('console', (m) => { if (m.type() === 'error' && !(offline && m.text().includes('ERR_INTERNET_DISCONNECTED'))) errors.push(m.text()); });
+  // The browser reports a 404 as an error; the one the wrong setup code is meant to get is not a fault.
+  const wrongCode404 = (m) => (m.location().url || '').endsWith('/book/' + 'd'.repeat(32));
+  page.on('console', (m) => { if (m.type() === 'error' && !(offline && m.text().includes('ERR_INTERNET_DISCONNECTED')) && !wrongCode404(m)) errors.push(m.text()); });
   const shot = (name) => page.screenshot({ path: path.join(shotDir, name + '.png'), fullPage: true, animations: 'disabled' });
   const text = (sel) => page.locator(sel).first().innerText();
 
@@ -263,6 +273,53 @@ function check(cond, msg) {
     await page.reload();
     await page.waitForSelector('.fund-card');
     check((await text('.fund-card')).includes('RM 299'), 'restored data survives reload');
+
+    // --- setup link: the family publishes her book under a code; an empty phone opened with the link loads it
+    sharedBook = sent.body;
+    const receiptsOnPhone = () => page.evaluate(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:v1')).receipts.length; } catch (_) { return 0; } });
+    const freshPhone = async (hash) => {
+      await page.evaluate(() => localStorage.clear());
+      await page.goto('about:blank'); // so the app starts again, as when a link is tapped in WhatsApp
+      await page.goto(base + hash);
+    };
+    await freshPhone('#/setup/' + 'd'.repeat(32));
+    await page.waitForSelector('#toast:has-text("没能载入记录")');
+    check(!(await page.locator('.fund-card').count()) && (await text('#toast')).includes('设置码不对'), 'a setup link with the wrong code loads nothing and says so');
+    check(!page.url().includes('d'.repeat(32)), 'the code is taken out of the address');
+
+    await freshPhone('#/setup/' + SETUP_CODE);
+    await page.waitForSelector('.fund-card');
+    check((await text('.fund-card')).includes('RM 299') && (await receiptsOnPhone()) === 14, 'an empty phone opened with the setup link loads the book: RM 299, 14 receipts');
+    check(!page.url().includes(SETUP_CODE) && !(await page.evaluate(() => JSON.stringify(localStorage))).includes('5e7ccc'), 'the setup code is not left in the address or kept on the phone');
+    await shot('11b-setup-link');
+    const uploadsBefore = backups.length;
+    for (let i = 0; i < 100 && backups.length === uploadsBefore; i++) await page.waitForTimeout(100);
+    const newId = await page.evaluate(() => localStorage.getItem('dana-ledger:device-id'));
+    check(backups.length > uploadsBefore && backups[backups.length - 1].path === '/backup/' + newId && newId !== deviceId, 'the phone then backs the book up as its own, under a new id');
+    await page.reload();
+    await page.waitForSelector('.fund-card');
+    check((await receiptsOnPhone()) === 14, 'the loaded book survives reload');
+
+    // A phone that already has records is left alone by the link.
+    await page.click('.fund-card');
+    await page.waitForSelector('.people');
+    await page.evaluate((code) => { location.hash = '#/setup/' + code; }, SETUP_CODE);
+    await page.waitForSelector('#toast:has-text("已经有记录")');
+    check((await receiptsOnPhone()) === 14 && !page.url().includes(SETUP_CODE), 'the setup link changes nothing on a phone that already has records');
+
+    // From 恢复记录 the family can paste the whole link; a phone with records is asked first.
+    await page.goto(base + '#/restore');
+    await page.waitForSelector('[data-action=load-book]');
+    await page.fill('input[name=code]', 'not a code');
+    await page.click('[data-action=load-book]');
+    await page.waitForSelector('#toast:has-text("请贴上")');
+    await page.fill('input[name=code]', '妈妈的记录： ' + base + '#/setup/' + SETUP_CODE.toUpperCase());
+    await page.click('[data-action=load-book]');
+    await page.waitForSelector('.confirm');
+    check((await text('.confirm')).includes('14 笔收款'), 'pasting the setup link in 恢复记录 asks before replacing the records');
+    await page.click('[data-action=confirm-yes]');
+    await page.waitForSelector('.fund-card');
+    check((await text('.fund-card')).includes('RM 299'), 'and then loads the book');
   }
   await page.click('text=设置');
   await page.waitForSelector('[data-size=xlarge]');

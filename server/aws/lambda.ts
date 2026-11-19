@@ -1,7 +1,8 @@
 /*
  * 善款簿 backup server on AWS: a Lambda function behind an API Gateway HTTP API, keeping backups
  * in a private S3 bucket. server/aws/template.yaml creates all of it; server/aws/deploy.sh
- * uploads this code. What it accepts and refuses is in ../backup-core.js, the same as on the Pi.
+ * builds this code to JavaScript and uploads it. What it accepts and refuses is in
+ * ../backup-core.ts, the same as on the Pi.
  *
  * Settings come from the function's environment, set by the template:
  *   BACKUP_TOKEN     the key for reading backups ("Authorization: Bearer <key>")
@@ -12,16 +13,30 @@
  * There is no per-address upload limit here: the function keeps no memory between requests.
  * API Gateway limits how many requests a second reach it instead (see the template).
  */
-'use strict';
-const { createBackupService } = require('../backup-core.js');
-const { createS3Store } = require('./store-s3.js');
+import { createRequire } from 'node:module';
+import { createBackupService, type BackupService } from '../backup-core.ts';
+import { createS3Store } from './store-s3.ts';
 
-/** Turn API Gateway's request (payload format 2.0) into a call to the backup service, and back. */
-function createHandler(service) {
-  return async (event) => {
-    const headers = {};
+/** The parts of API Gateway's request (payload format 2.0) that are used. */
+export interface ApiEvent {
+  rawPath?: string;
+  headers?: Record<string, string | undefined>;
+  body?: string | null;
+  isBase64Encoded?: boolean;
+  requestContext?: { http?: { method?: string; sourceIp?: string } };
+}
+export interface ApiResult {
+  statusCode: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
+/** Turn API Gateway's request into a call to the backup service, and back. */
+export function createHandler(service: BackupService) {
+  return async (event: ApiEvent): Promise<ApiResult> => {
+    const headers: Record<string, string | undefined> = {};
     for (const [k, v] of Object.entries(event.headers || {})) headers[k.toLowerCase()] = v;
-    const http = (event.requestContext && event.requestContext.http) || {};
+    const http = event.requestContext?.http || {};
     const body = event.body == null ? '' : event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body;
     const out = await service.handle({
       method: http.method,
@@ -34,16 +49,17 @@ function createHandler(service) {
   };
 }
 
-let ready = null;
+let ready: ReturnType<typeof createHandler> | null = null;
 function realHandler() {
   if (!ready) {
-    // The AWS SDK comes with the Lambda runtime; nothing is installed for it.
-    const sdk = require('@aws-sdk/client-s3');
+    // The AWS SDK comes with the Lambda runtime; nothing is installed for it. It is loaded with
+    // require, which finds the runtime's copy, and only when a real request arrives.
+    const sdk = createRequire(import.meta.url)('@aws-sdk/client-s3');
     const env = process.env;
     ready = createHandler(
       createBackupService({
         token: env.BACKUP_TOKEN,
-        store: createS3Store({ s3: new sdk.S3Client({}), cmd: sdk, bucket: env.BACKUP_BUCKET }),
+        store: createS3Store({ s3: new sdk.S3Client({}), cmd: sdk, bucket: env.BACKUP_BUCKET || '' }),
         origins: (env.ALLOWED_ORIGINS || 'https://mum.franklee.asia').split(',').map((s) => s.trim()).filter(Boolean),
         quotaBytes: Number(env.QUOTA_BYTES) || undefined,
       })
@@ -52,4 +68,4 @@ function realHandler() {
   return ready;
 }
 
-module.exports = { createHandler, handler: (event) => realHandler()(event) };
+export const handler = (event: ApiEvent): Promise<ApiResult> => realHandler()(event);

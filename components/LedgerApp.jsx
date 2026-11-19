@@ -4,7 +4,7 @@ import { useEffect, useRef, useSyncExternalStore } from 'react';
 import {
   S, L, APP_VERSION, subscribe, getVersion, init, route, nav, goBack, mutate, money, openSheet,
   closeConfirm, showToast, toastAction, serverStatus, backupWarning, canOfferInstall, doInstall,
-  shareOrDownload, shareText, doRestore, setFontSize, setCurrency,
+  shareOrDownload, shareText, doRestore, loadBookFromText, setFontSize, setCurrency,
 } from './store';
 import { SHEETS } from './sheets';
 
@@ -590,8 +590,8 @@ function SettingsView() {
 }
 
 /**
- * For the family, not for mum: how a backup file gets onto a new phone, and whether backups are
- * reaching the backup server. Five taps on the version line in 设置 open it, because on iPhone a link
+ * For the family, not for mum: how her records get onto a new phone (by the setup code the family
+ * made, or from a backup file), and whether backups are reaching the backup server. Five taps on the version line in 设置 open it, because on iPhone a link
  * opens in Safari, never inside the installed app. #/restore also works.
  */
 function RestoreView() {
@@ -603,6 +603,10 @@ function RestoreView() {
   if (ss.ok) autoState = `已自动备份：${when(ss.at)}`;
   else if (ss.at) autoState = <>{`⚠ 这次没能自动备份（${ss.error}），有网络时会自动再试。`}{ss.lastOkAt ? <><br />{`上次成功：${when(ss.lastOkAt)}`}</> : null}</>;
   else autoState = '还没有自动备份。';
+  const loadByCode = (e) => {
+    e.preventDefault();
+    loadBookFromText(new FormData(e.currentTarget).get('code'));
+  };
   return (
     <>
       <Topbar title="恢复记录" back />
@@ -612,6 +616,14 @@ function RestoreView() {
           <p>用家人给的备份文件，取代这部手机现在的记录。</p>
           <button className="btn btn-ghost btn-block" data-action="restore" onClick={() => document.getElementById('restore-file').click()}>从备份文件恢复</button>
           <p className="hint">{`这部手机现在有：${counts}`}</p>
+        </section>
+        <section className="card">
+          <form onSubmit={loadByCode}>
+            <label className="field"><span className="field-label">家人给的设置链接或设置码</span>
+              <input className="input" name="code" autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="贴在这里" /></label>
+            <button className="btn btn-ghost btn-block" type="submit" data-action="load-book">用设置码载入记录</button>
+          </form>
+          <p className="hint">这部手机如果已经有记录，会先问过才取代。</p>
         </section>
       </main>
     </>

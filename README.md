@@ -51,6 +51,7 @@ This means:
 
 - If the phone is lost or its browser data is cleared, the records can be restored from the last backup. Anything entered since then, while there was no signal, is lost.
 - The app warns on its home screen only when backups have been failing for 14 days, or 30 changes have never been backed up.
+- A new phone can load mum's book with a **setup link** the family makes. See [Putting mum's book on a new phone](#putting-mums-book-on-a-new-phone).
 - To put a backup on a phone, the family fetches the file from the backup server with the key, sends it to the phone, and loads it from the hidden 恢复记录 screen: tap the version line in 设置 five times, then 从备份文件恢复. The steps are in [server/aws/README.md](server/aws/README.md#restoring-a-phone).
 - Each phone, and each browser on it, backs up as a separate book.
 
@@ -66,7 +67,7 @@ npx http-server -c-1 out   # serves the built app, with offline mode, at http://
 **Trying things by hand on your own computer is safe.** At `localhost` the app keeps records in that browser only and never sends them to the backup server. At any other address, anything you enter is sent to the real backup server as a new phone's backup.
 
 ```sh
-npm test                                   # unit tests for the money/balance rules and the backup server
+npm test                                   # type-checks the backup server, then unit tests for the money/balance rules and the server
 npm run test:e2e                           # builds, then drives the real app on a phone-sized screen
 npm run build && node tests/upgrade.js     # a phone on 1.6.0 moves to this build and keeps its records
 ```
@@ -104,14 +105,36 @@ npm run deploy               # builds the app into out/, then uploads it
 | `components/sheets.jsx` | The forms that slide up (dialogs on desktop) |
 | `scripts/sw.template.js`, `scripts/build.js` | Offline cache. The build fills in the file list and writes `out/sw.js` |
 | `public/manifest.webmanifest`, `public/icons/` | Home-screen install |
-| `server/backup-core.js` | The backup server's rules: what it accepts, refuses and keeps. Shared by the Pi and AWS versions. Not part of the app's build |
-| `server/backup-server.js`, `server/store-disk.js`, `server/pi-setup.sh`, `server/dana-backup.*` | The version that runs on the family's Raspberry Pi and keeps files on its disk, with its systemd service and installer |
+| `server/backup-core.ts` | The backup server's rules: what it accepts, refuses and keeps. Shared by the Pi and AWS versions. Not part of the app's build |
+| `server/backup-server.ts`, `server/store-disk.ts`, `server/pi-setup.sh`, `server/dana-backup.*` | The version that runs on the family's Raspberry Pi and keeps files on its disk, with its systemd service and installer |
+| `server/tsconfig.json`, `server/package.json`, `scripts/build-server.mts`, `lib/model.d.ts` | The server is TypeScript on Node.js. Node 24 runs it as it is; `npm run build:server` turns it into JavaScript in `server/dist/` for AWS Lambda and the Pi. `model.d.ts` describes `lib/model.js`, which is still JavaScript, as are the screens |
+| `scripts/publish-book.mts` | For the family: publishes a book on the backup server and prints its setup link |
 | `server/aws/` | The version for AWS, keeping backups in an S3 bucket. See [server/aws/README.md](server/aws/README.md) |
-| `tests/server.test.js` | Tests for the backup server, run against both the disk and S3 versions |
+| `tests/server.test.mts` | Tests for the backup server, run against both the disk and S3 versions |
 | `tests/model.test.js` | Unit tests for balances, prepayments, import and CSV |
 | `tests/e2e.js` | End-to-end test on a phone-sized screen, plus the desktop layout |
 | `tests/upgrade.js` | Moving a phone from 1.6.0 to this build |
 | `next.config.js`, `wrangler.jsonc` | Build settings (static export) and Cloudflare deploy settings |
+
+## Putting mum's book on a new phone
+
+**Not live yet.** This is in 2.2.0, which is not deployed: both the app and the backup server on AWS have to be deployed before a setup link works.
+
+The family publishes a book on the backup server under a **setup code**, 32 random hex digits. Whoever has the code can read that one book, and nothing else on the server. The family's key for reading backups is needed to publish, and never goes to a phone.
+
+```sh
+node scripts/publish-book.mts private/book.json                       # checks the file, sends nothing
+BACKUP_TOKEN=<the family key> node scripts/publish-book.mts private/book.json --send
+```
+
+The second command prints a link like `https://mum.franklee.asia/#/setup/<code>`.
+
+- **Android:** tap the link on the new phone. If the app has no records, it loads the book.
+- **iPhone:** a link opens in Safari, not in the installed app. Open 「善款簿」 from the home screen, tap the version line in 设置 five times, and paste the link under 「家人给的设置链接或设置码」.
+- A phone that already has records is not changed by the link. From 恢复记录 it asks first, then replaces them.
+- After loading, the phone works as before: records are kept on the phone and back up by themselves as that phone's own book. It does not fetch the shared book again.
+- **Treat the link like a password.** Anyone who gets it can read every name and amount in the book. To stop an old link working, publish under a new code; the old copy stays in the bucket until someone with AWS access removes it.
+- Keep the book file in `private/`, which git ignores.
 
 ## First-time setup for mum
 

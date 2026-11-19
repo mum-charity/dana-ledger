@@ -224,6 +224,7 @@ export const thisYear = () => +L.currentMonth().slice(0, 4);
 // #/f/<id>/p            people list
 // #/settings
 // #/restore             for the family: load a backup file (five taps on the version line in 设置)
+// #/setup/<code>        the family's setup link: an empty phone loads mum's book (see takeSetupLink)
 export function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'f' && parts[1]) {
@@ -419,14 +420,116 @@ async function confirmAndRestore(parsed, what) {
   });
   if (!yes) return false;
   try { localStorage.setItem(STORE_KEY + ':before-restore', JSON.stringify(S.state)); } catch (_) { /* ignore */ }
-  S.state = n;
+  adopt(n);
+  showToast(`已恢复${parsed.dropped ? `（有 ${parsed.dropped} 笔坏掉的记录被跳过）` : ''}`, { ms: 5000 });
+  return true;
+}
+
+/** Make checked records this phone's records, and show the home screen. */
+function adopt(state) {
+  S.state = state;
   S.state.settings.lastBackupAt = Date.now();
   S.state.settings.changesSinceBackup = 0;
   persist();
   applyFontSize();
   nav('#/', true);
-  showToast(`已恢复${parsed.dropped ? `（有 ${parsed.dropped} 笔坏掉的记录被跳过）` : ''}`, { ms: 5000 });
-  return true;
+}
+
+// ================================================================ the family's book, by setup code
+// How a new phone gets mum's records. The family publishes her book on the backup server under a
+// setup code: 32 random hex digits, which is the only thing that opens it. The phone gets the
+// code in a link (#/setup/<code>) or pasted into 恢复记录, fetches that one book, and from then on
+// works like any phone: the records live here and back up by themselves. The family's key for
+// reading backups is never involved.
+const SETUP_CODE = /(?:^|[^0-9a-f])([0-9a-f]{32})(?![0-9a-f])/i;
+/** The setup code in what was typed or pasted: the code by itself, or the whole link. */
+export function setupCodeFrom(text) {
+  const m = SETUP_CODE.exec(String(text == null ? '' : text).trim());
+  return m ? m[1].toLowerCase() : null;
+}
+
+async function fetchBook(code) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 30000);
+  let res;
+  try {
+    res = await fetch(`${SERVER}/book/${code}`, { cache: 'no-store', signal: ctl.signal });
+  } catch (e) {
+    throw new Error(navigator.onLine === false ? '没有网络' : '连不上服务器');
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.status === 404) throw new Error('设置码不对，或者已经换了新的');
+  if (!res.ok) throw new Error(`服务器出错（${res.status}）`);
+  let parsed;
+  try {
+    parsed = L.normalizeState(await res.json());
+  } catch (e) {
+    throw new Error('收到的记录格式不对');
+  }
+  if (!parsed.state.funds.length) throw new Error('收到的记录是空的');
+  return parsed;
+}
+
+let loadingBook = false;
+/**
+ * Fetch the book under a setup code and make it this phone's records. A phone that already has
+ * records is left alone unless `replace` is set, and then it asks first, like restoring a file.
+ * Returns true if the records were loaded.
+ */
+async function loadBook(code, { replace = false } = {}) {
+  if (loadingBook) return false;
+  loadingBook = true;
+  try {
+    showToast('正在载入记录…', { ms: 35000 });
+    let parsed;
+    try {
+      parsed = await fetchBook(code);
+    } catch (e) {
+      showToast('没能载入记录：' + e.message, { ms: 8000 });
+      return false;
+    }
+    // Looked at again after the wait: she may have started a book of her own meanwhile.
+    if (S.state.funds.length) {
+      if (!replace) {
+        showToast('这部手机已经有记录，没有更改。', { ms: 8000 });
+        return false;
+      }
+      if (!(await confirmAndRestore(parsed, '家人准备的记录'))) return false;
+    } else {
+      const n = parsed.state;
+      adopt(n);
+      showToast(`已载入 ${n.funds.length} 个项目、${n.members.length} 人的记录`, { ms: 6000 });
+    }
+    serverChanged(); // from now on this phone backs the book up as its own
+    return true;
+  } finally {
+    loadingBook = false;
+  }
+}
+
+/** From 恢复记录, for the family: load the book under the code or link they pasted. */
+export async function loadBookFromText(text) {
+  const code = setupCodeFrom(text);
+  if (!code) {
+    showToast('请贴上家人给的设置链接或设置码。', { ms: 6000 });
+    return false;
+  }
+  return loadBook(code, { replace: true });
+}
+
+/**
+ * A setup link was opened (#/setup/<code>). The code is taken out of the address at once, so it
+ * is not left in the address bar or the phone's history. Only an empty phone loads the book.
+ */
+function takeSetupLink() {
+  const m = /^#\/setup(?:\/([^/?#]*))?/.exec(location.hash);
+  if (!m) return;
+  history.replaceState(history.state, '', '#/');
+  const code = setupCodeFrom(m[1]);
+  if (!code) showToast('这个设置链接不完整，请向家人再要一次。', { ms: 8000 });
+  else if (S.state.funds.length) showToast('这部手机已经有记录，没有更改。', { ms: 8000 });
+  else loadBook(code);
 }
 
 export async function shareText(text) {
@@ -489,7 +592,10 @@ export function init() {
     if (S.sheet && !(history.state && history.state.sheet)) hideSheet();
     emit();
   });
-  window.addEventListener('hashchange', emit);
+  window.addEventListener('hashchange', () => {
+    takeSetupLink();
+    emit();
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (S.confirm) closeConfirm(false);
@@ -527,4 +633,5 @@ export function init() {
 
   S.ready = true;
   emit();
+  takeSetupLink();
 }

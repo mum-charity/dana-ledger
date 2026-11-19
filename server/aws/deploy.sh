@@ -4,6 +4,7 @@
 #   aws login                      # first, if your session has expired
 #   bash server/aws/deploy.sh      # from anywhere in a copy of this repo
 #
+# It builds the server (TypeScript) into JavaScript first, so run `npm install` once beforehand.
 # Safe to run again: it keeps the bucket, the backups and the key, and updates the rest.
 # Settings, all optional, are environment variables:
 #   STACK_NAME      default dana-backup
@@ -59,8 +60,11 @@ FN="$(out FunctionName)"
 URL="$(out ApiUrl)"
 
 say "2/3 The code"
+# The server is TypeScript; Lambda gets the JavaScript built from it. The build also loads what it
+# built and asks it /health, so code that cannot start stops here, before anything is uploaded.
+(cd "$ROOT" && npm run --silent build:server)
 ZIP="$(mktemp -d)/backup.zip"
-(cd "$ROOT" && zip -q -X "$ZIP" lib/model.js server/backup-core.js server/aws/lambda.js server/aws/store-s3.js)
+(cd "$ROOT/server/dist" && zip -q -X "$ZIP" lib/model.js lib/package.json server/package.json server/backup-core.js server/aws/lambda.js server/aws/store-s3.js)
 aws lambda update-function-code --function-name "$FN" --zip-file "fileb://$ZIP" --query LastUpdateStatus --output text
 aws lambda wait function-updated --function-name "$FN"
 rm -f "$ZIP"
@@ -75,9 +79,10 @@ code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 listed="$(code -H "Authorization: Bearer $readkey" "$URL/backups")"
 missing="$(code -H "Authorization: Bearer $readkey" "$URL/backups/$(node -e 'process.stdout.write(require("crypto").randomBytes(16).toString("hex"))')/latest")"
 nokey="$(code "$URL/backups")"
+nobook="$(code "$URL/book/$(node -e 'process.stdout.write(require("crypto").randomBytes(16).toString("hex"))')")"
 unset readkey
-echo "listing backups with the key -> $listed (want 200); a phone with no backup -> $missing (want 404); without the key -> $nokey (want 401)"
-[ "$listed" = 200 ] && [ "$missing" = 404 ] && [ "$nokey" = 401 ] || { echo "Stopped: the server cannot read its bucket correctly. Logs: aws logs tail /aws/lambda/$FN --since 10m" >&2; exit 1; }
+echo "listing backups with the key -> $listed (want 200); a phone with no backup -> $missing (want 404); without the key -> $nokey (want 401); a setup code never used -> $nobook (want 404)"
+[ "$listed" = 200 ] && [ "$missing" = 404 ] && [ "$nokey" = 401 ] && [ "$nobook" = 404 ] || { echo "Stopped: the server cannot read its bucket correctly. Logs: aws logs tail /aws/lambda/$FN --since 10m" >&2; exit 1; }
 
 cat <<DONE
 

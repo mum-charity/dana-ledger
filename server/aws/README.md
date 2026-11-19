@@ -11,7 +11,7 @@ To go back to the Pi: in Cloudflare DNS, set the `mum-backup` record to CNAME `8
 `template.yaml` creates, in one CloudFormation stack (`dana-backup` by default):
 
 - **An S3 bucket** for the backups. It is private, encrypted, keeps earlier copies of anything overwritten, and stays if the stack is deleted.
-- **A Lambda function** that runs `server/backup-core.js`, the same rules as on the Pi. Its role can read, write and list backups but cannot delete them.
+- **A Lambda function** that runs `server/backup-core.ts`, the same rules as on the Pi, built to JavaScript by the deploy script. Its role can read, write and list backups, and read and write shared books (`books/`), but cannot delete anything.
 - **An API Gateway HTTP API** in front of the function, limited to 2 requests a second from everyone together.
 - **A log group** kept for 90 days. Logs show the first 8 characters of a phone's id and how many records it sent, never the records.
 - **Optionally, a budget alert** that emails you when the account's monthly bill passes US$5.
@@ -26,6 +26,7 @@ At mum's usage the cost should be a few US cents a month. That is an estimate, n
 ## Deploy
 
 ```sh
+npm install                                            # once: the deploy builds the server from TypeScript
 aws login                                              # if your session has expired
 ALERT_EMAIL=you@example.com bash server/aws/deploy.sh  # ALERT_EMAIL is optional
 ```

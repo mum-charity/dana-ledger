@@ -110,7 +110,9 @@ Resources:
                 Action:
                   - s3:GetObject
                   - s3:PutObject
-                Resource: !Sub '${Bucket.Arn}/devices/*'
+                Resource:
+                  - !Sub '${Bucket.Arn}/devices/*'
+                  - !Sub '${Bucket.Arn}/books/*'
               - Effect: Allow
                 Action: s3:ListBucket
                 Resource: !GetAtt Bucket.Arn

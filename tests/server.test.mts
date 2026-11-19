@@ -1,18 +1,19 @@
 // Tests for the backup server (server/). The same checks run against both places it can keep
 // backups: files on disk (the Raspberry Pi) and an S3 bucket (AWS), using a stand-in for S3.
 // Run with: npm test
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const http = require('http');
-const L = require('../lib/model.js');
-const { createBackupService } = require('../server/backup-core.js');
-const { createDiskStore } = require('../server/store-disk.js');
-const { createS3Store } = require('../server/aws/store-s3.js');
-const { createHandler } = require('../server/aws/lambda.js');
-const { createBackupServer } = require('../server/backup-server.js');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import L from '../lib/model.js';
+import { createBackupService, type BackupResponse, type BackupService, type BackupServiceOptions } from '../server/backup-core.ts';
+import { createDiskStore } from '../server/store-disk.ts';
+import { createS3Store, type S3Commands } from '../server/aws/store-s3.ts';
+import { createHandler, type ApiEvent } from '../server/aws/lambda.ts';
+import { createBackupServer } from '../server/backup-server.ts';
 
 const TOKEN = 'k'.repeat(40);
 const ORIGIN = 'https://mum.franklee.asia';
@@ -20,12 +21,13 @@ const DEVICE = 'a'.repeat(32);
 const OTHER = 'b'.repeat(32);
 
 /** A backup of a small book. `receipts` changes the records, so each count is a new version. */
-const books = new Map(); // made once each, because every new book gets new random ids
-function book(receipts = 0) {
-  if (!books.has(receipts)) books.set(receipts, makeBook(receipts));
-  return books.get(receipts);
+const books = new Map<number, string>(); // made once each, because every new book gets new random ids
+function book(receipts = 0): string {
+  let text = books.get(receipts);
+  if (text === undefined) books.set(receipts, (text = makeBook(receipts)));
+  return text;
 }
-function makeBook(receipts) {
+function makeBook(receipts: number): string {
   const s = L.emptyState();
   const fund = L.addFund(s, { name: 'Bhante 医疗费用', opening: 5000 });
   const m = L.addMember(s, { fundId: fund.id, name: '陈美玲', pledge: 1000, startMonth: '2026-01' });
@@ -33,20 +35,23 @@ function makeBook(receipts) {
   return L.backupJSON(s);
 }
 
-/** Enough of S3 for store-s3.js: objects in memory, and the same errors S3 gives. */
+/** Enough of S3 for store-s3.ts: objects in memory, and the same errors S3 gives. */
 function fakeS3() {
-  const objects = new Map(); // key -> { body, lastModified }
-  const calls = [];
-  const named = (name) => class { constructor(input) { this.input = input; this.kind = name; } };
-  const cmd = { GetObjectCommand: named('get'), PutObjectCommand: named('put'), ListObjectsV2Command: named('list'), DeleteObjectCommand: named('delete') };
-  const fail = (name) => Object.assign(new Error(name), { name });
+  interface Command { kind: string; input: { Key: string; Body: string; Prefix: string; IfNoneMatch?: string; ContinuationToken?: string } }
+  const objects = new Map<string, { body: string; lastModified: Date }>();
+  const calls: string[] = [];
+  const named = (kind: string) => class { kind = kind; input: unknown; constructor(input: unknown) { this.input = input; } };
+  const cmd: S3Commands = { GetObjectCommand: named('get'), PutObjectCommand: named('put'), ListObjectsV2Command: named('list') };
+  const fail = (name: string) => Object.assign(new Error(name), { name });
+  const stored = (key: string) => objects.get(key)!;
   const s3 = {
-    async send(c) {
+    async send(command: unknown) {
+      const c = command as Command;
       calls.push(c.kind);
       const { Key } = c.input;
       if (c.kind === 'get') {
         if (!objects.has(Key)) throw fail('NoSuchKey');
-        return { Body: { transformToString: async () => objects.get(Key).body } };
+        return { Body: { transformToString: async () => stored(Key).body } };
       }
       if (c.kind === 'put') {
         if (c.input.IfNoneMatch === '*' && objects.has(Key)) throw fail('PreconditionFailed');
@@ -59,7 +64,7 @@ function fakeS3() {
         const start = c.input.ContinuationToken ? Number(c.input.ContinuationToken) : 0;
         const page = keys.slice(start, start + 2);
         const more = start + 2 < keys.length;
-        return { Contents: page.map((k) => ({ Key: k, Size: Buffer.byteLength(objects.get(k).body), LastModified: objects.get(k).lastModified })), IsTruncated: more, NextContinuationToken: more ? String(start + 2) : undefined };
+        return { Contents: page.map((k) => ({ Key: k, Size: Buffer.byteLength(stored(k).body), LastModified: stored(k).lastModified })), IsTruncated: more, NextContinuationToken: more ? String(start + 2) : undefined };
       }
       throw new Error('unexpected S3 call: ' + c.kind);
     },
@@ -68,6 +73,8 @@ function fakeS3() {
 }
 
 const quiet = { log() {}, error() {} };
+
+interface CallOptions { body?: string; headers?: Record<string, string> }
 
 const STORES = {
   disk() {
@@ -81,11 +88,12 @@ const STORES = {
 };
 
 for (const [kind, make] of Object.entries(STORES)) {
-  const setup = (opts = {}) => {
+  const setup = (opts: Partial<BackupServiceOptions> = {}) => {
     const st = make();
     let t = Date.parse('2026-11-19T04:00:00Z');
-    const service = (more = {}) => createBackupService({ token: TOKEN, store: st.open(), log: quiet, now: () => (t += 1000), ...opts, ...more });
-    const call = (svc, method, url, { body = '', headers = {} } = {}) => svc.handle({ method, url, headers, ip: '203.0.113.9', readBody: async () => body });
+    const service = (more: Partial<BackupServiceOptions> = {}) => createBackupService({ token: TOKEN, store: st.open(), log: quiet, now: () => (t += 1000), ...opts, ...more });
+    const call = (svc: BackupService, method: string, url: string, { body = '', headers = {} }: CallOptions = {}): Promise<BackupResponse> =>
+      svc.handle({ method, url, headers, ip: '203.0.113.9', readBody: async () => body });
     return { st, service, call };
   };
   const key = { authorization: `Bearer ${TOKEN}` };
@@ -137,7 +145,7 @@ for (const [kind, make] of Object.entries(STORES)) {
   test(`${kind}: refuses what is not a backup`, async () => {
     const { st, service, call } = setup({ maxBytes: 5000 });
     const svc = service();
-    const status = async (...a) => (await call(svc, ...a)).status;
+    const status = async (method: string, url: string, o?: CallOptions) => (await call(svc, method, url, o)).status;
     assert.equal(await status('PUT', `/backup/${DEVICE}`, { body: '{"x":1}' }), 400);
     assert.equal(await status('PUT', `/backup/${DEVICE}`, { body: 'not json' }), 400);
     assert.equal(await status('PUT', `/backup/${DEVICE}`, { body: L.backupJSON(L.emptyState()) }), 422);
@@ -190,13 +198,70 @@ for (const [kind, make] of Object.entries(STORES)) {
     assert.equal(bad.headers['Access-Control-Allow-Origin'], undefined);
     st.cleanup();
   });
+
+  test(`${kind}: a shared book is published with the key and read with its setup code alone`, async () => {
+    const { st, service, call } = setup();
+    const svc = service();
+    const CODE = 'c'.repeat(32);
+    // Publishing is the family's: no key, no book.
+    assert.equal((await call(svc, 'PUT', `/book/${CODE}`, { body: book(1) })).status, 401);
+    assert.equal((await call(svc, 'GET', `/book/${CODE}`)).status, 404);
+    const put = await call(svc, 'PUT', `/book/${CODE}`, { body: book(1), headers: key });
+    assert.equal(put.status, 201);
+    assert.deepEqual(JSON.parse(put.body), { published: true, funds: 1, people: 1, receipts: 1, payouts: 0, offerings: 0 });
+
+    // A phone has only the code, and calls from the app's own site.
+    const got = await call(svc, 'GET', `/book/${CODE}`, { headers: { origin: ORIGIN } });
+    assert.equal(got.status, 200);
+    assert.equal(got.body, book(1));
+    assert.equal(got.headers['Access-Control-Allow-Origin'], ORIGIN);
+    assert.equal(got.headers['Cache-Control'], 'no-store');
+    // Any other code opens nothing, and a code is not a way into the phones' backups.
+    assert.equal((await call(svc, 'GET', `/book/${'d'.repeat(32)}`)).status, 404);
+    assert.equal((await call(svc, 'GET', '/book/short')).status, 400);
+    assert.equal((await call(svc, 'GET', `/backups/${CODE}/latest`)).status, 401);
+    assert.deepEqual(JSON.parse((await call(svc, 'GET', '/backups', { headers: key })).body).devices, []);
+
+    // Publishing again replaces it; a fresh copy of the server over the same storage still has it.
+    assert.equal((await call(svc, 'PUT', `/book/${CODE}`, { body: book(2), headers: key })).status, 201);
+    assert.equal((await call(service(), 'GET', `/book/${CODE}`)).body, book(2));
+    st.cleanup();
+  });
+
+  test(`${kind}: a shared book that is empty, broken or would lose records is not published`, async () => {
+    const { st, service, call } = setup({ maxBytes: 5000 });
+    const svc = service();
+    const CODE = 'c'.repeat(32);
+    const status = async (body: string) => (await call(svc, 'PUT', `/book/${CODE}`, { body, headers: key })).status;
+    assert.equal(await status('not json'), 400);
+    assert.equal(await status(L.backupJSON(L.emptyState())), 422);
+    const broken = JSON.parse(book(1));
+    broken.data.receipts[0].date = 'yesterday';
+    assert.equal(await status(JSON.stringify(broken)), 422);
+    assert.equal(await status(book() + ' '.repeat(6000)), 413);
+    assert.equal((await call(svc, 'PUT', '/book/not-a-code', { body: book(), headers: key })).status, 400);
+    assert.equal((await call(svc, 'POST', `/book/${CODE}`, { body: book(), headers: key })).status, 405);
+    assert.equal((await call(svc, 'GET', `/book/${CODE}`)).status, 404, 'nothing was stored');
+    st.cleanup();
+  });
 }
+
+test('s3: a shared book is kept apart from the phones, under a name that is not its code', async () => {
+  const fake = fakeS3();
+  const svc = createBackupService({ token: TOKEN, store: createS3Store({ s3: fake.s3, cmd: fake.cmd, bucket: 'test' }), log: quiet });
+  const CODE = 'c'.repeat(32);
+  await svc.handle({ method: 'PUT', url: `/book/${CODE}`, headers: { authorization: `Bearer ${TOKEN}` }, readBody: async () => book(1) });
+  const keys = [...fake.objects.keys()];
+  assert.equal(keys.length, 1);
+  assert.match(keys[0], /^books\/[0-9a-f]{64}\.json$/);
+  assert.ok(!keys[0].includes(CODE));
+});
 
 test('s3: objects are laid out like the files on the Pi, and nothing is ever deleted or replaced', async () => {
   const fake = fakeS3();
   let t = Date.parse('2026-11-19T04:00:00Z');
   const svc = createBackupService({ token: TOKEN, store: createS3Store({ s3: fake.s3, cmd: fake.cmd, bucket: 'test' }), log: quiet, now: () => t });
-  const put = (body) => svc.handle({ method: 'PUT', url: `/backup/${DEVICE}`, headers: {}, readBody: async () => body });
+  const put = (body: string) => svc.handle({ method: 'PUT', url: `/backup/${DEVICE}`, headers: {}, readBody: async () => body });
   await put(book(0));
   t += 1000;
   await put(book(1));
@@ -204,15 +269,15 @@ test('s3: objects are laid out like the files on the Pi, and nothing is ever del
   assert.equal(keys.length, 3);
   assert.match(keys[0], new RegExp(`^devices/${DEVICE}/2026-11-19T04-00-00\\.000Z-[0-9a-f]{8}\\.json$`));
   assert.equal(keys[2], `devices/${DEVICE}/latest.json`);
-  assert.equal(fake.objects.get(keys[0]).body, book(0)); // the first version is still there, untouched
-  assert.equal(fake.objects.get(keys[2]).body, book(1));
+  assert.equal(fake.objects.get(keys[0])?.body, book(0)); // the first version is still there, untouched
+  assert.equal(fake.objects.get(keys[2])?.body, book(1));
   assert.ok(!fake.calls.includes('delete'));
 });
 
 test('lambda: an API Gateway request goes in and an API Gateway answer comes out', async () => {
   const fake = fakeS3();
   const handler = createHandler(createBackupService({ token: TOKEN, store: createS3Store({ s3: fake.s3, cmd: fake.cmd, bucket: 'test' }), log: quiet }));
-  const event = (method, rawPath, extra = {}) => ({ version: '2.0', rawPath, headers: {}, requestContext: { http: { method, sourceIp: '203.0.113.9' } }, ...extra });
+  const event = (method: string, rawPath: string, extra: Partial<ApiEvent> = {}): ApiEvent => ({ rawPath, headers: {}, requestContext: { http: { method, sourceIp: '203.0.113.9' } }, ...extra });
 
   const put = await handler(event('PUT', `/backup/${DEVICE}`, { body: book(1), headers: { Origin: ORIGIN, 'content-type': 'application/json' } }));
   assert.equal(put.statusCode, 201);
@@ -222,7 +287,7 @@ test('lambda: an API Gateway request goes in and an API Gateway answer comes out
   // API Gateway may hand the body over base64-encoded.
   const b64 = await handler(event('PUT', `/backup/${OTHER}`, { body: Buffer.from(book(2)).toString('base64'), isBase64Encoded: true }));
   assert.equal(b64.statusCode, 201);
-  assert.equal(fake.objects.get(`devices/${OTHER}/latest.json`).body, book(2));
+  assert.equal(fake.objects.get(`devices/${OTHER}/latest.json`)?.body, book(2));
 
   assert.equal((await handler(event('OPTIONS', `/backup/${DEVICE}`, { headers: { origin: ORIGIN } }))).statusCode, 204);
   assert.equal((await handler(event('GET', '/backups'))).statusCode, 401);
@@ -234,10 +299,10 @@ test('lambda: an API Gateway request goes in and an API Gateway answer comes out
 test('pi: the server on a real port, with its limit on uploads from one address', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dana-backup-test-'));
   const server = createBackupServer({ token: TOKEN, dir, uploadsPerHour: 2, maxBytes: 5000 });
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const { port } = server.address();
-  const ask = (method, url, { body, headers = {} } = {}) =>
-    new Promise((resolve, reject) => {
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const { port } = server.address() as AddressInfo;
+  const ask = (method: string, url: string, { body, headers = {} }: CallOptions = {}) =>
+    new Promise<{ status: number | undefined; headers: http.IncomingHttpHeaders; body: string }>((resolve, reject) => {
       const req = http.request({ port, host: '127.0.0.1', method, path: url, headers }, (res) => {
         let text = '';
         res.on('data', (c) => { text += c; });
