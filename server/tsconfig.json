@@ -1,0 +1,23 @@
+{
+  // The backup server and its tests. The app (Next.js) is still plain JavaScript and has no
+  // tsconfig of its own; keep this file inside server/ so Next does not pick it up.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": false,
+    "skipLibCheck": true,
+    // Only syntax Node can run by itself, by dropping the types: no enums, no namespaces with code.
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "rootDir": "..",
+    "outDir": "dist",
+    "noEmit": true
+  },
+  "include": ["./*.ts", "./aws/*.ts", "../shared/*.ts", "../tests/server.test.mts", "../tests/sync.test.mts", "../scripts/*.mts", "../lib/model.d.ts"]
+}

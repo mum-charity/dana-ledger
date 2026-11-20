@@ -10,3 +10,6 @@ next-env.d.ts
 
 # Real names and amounts from the paper book. Never commit.
 private/
+
+# The backup server built to JavaScript by `npm run build:server`.
+server/dist/

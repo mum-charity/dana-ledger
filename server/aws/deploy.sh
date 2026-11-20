@@ -4,6 +4,7 @@
 #   aws login                      # first, if your session has expired
 #   bash server/aws/deploy.sh      # from anywhere in a copy of this repo
 #
+# It builds the server (TypeScript) into JavaScript first, so run `npm install` once beforehand.
 # Safe to run again: it keeps the bucket, the backups and the key, and updates the rest.
 # Settings, all optional, are environment variables:
 #   STACK_NAME      default dana-backup
@@ -11,6 +12,10 @@
 #   DOMAIN_NAME, CERTIFICATE_ARN   the address the app calls and its ACM certificate (see README)
 #   ALERT_EMAIL     gets an email when the month's AWS bill passes US$5
 #   ALLOWED_ORIGINS default https://mum.franklee.asia
+#   GOOGLE_CLIENT_ID, FAMILY_EMAILS   Google sign-in for the family's shared book: the client ID,
+#                   and the Google accounts allowed in, comma-separated. Keep the emails out of
+#                   the repo; give them here. Left out, the stack keeps what it had.
+#   QUOTA_BYTES     all phones' backups together (the template's default is 1 GB)
 #   KEY_FILE        on the first run, save the key for reading backups in this file (readable only
 #                   by you) instead of showing it on screen
 set -euo pipefail
@@ -50,6 +55,9 @@ fi
 [ -n "${CERTIFICATE_ARN:-}" ] && params+=("CertificateArn=$CERTIFICATE_ARN")
 [ -n "${ALERT_EMAIL:-}" ] && params+=("AlertEmail=$ALERT_EMAIL")
 [ -n "${ALLOWED_ORIGINS:-}" ] && params+=("AllowedOrigins=$ALLOWED_ORIGINS")
+[ -n "${GOOGLE_CLIENT_ID:-}" ] && params+=("GoogleClientId=$GOOGLE_CLIENT_ID")
+[ -n "${FAMILY_EMAILS:-}" ] && params+=("FamilyEmails=$FAMILY_EMAILS")
+[ -n "${QUOTA_BYTES:-}" ] && params+=("QuotaBytes=$QUOTA_BYTES")
 aws cloudformation deploy --stack-name "$STACK" --template-file "$HERE/template.yaml" \
   --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset \
   ${params[@]+--parameter-overrides "${params[@]}"}
@@ -59,8 +67,11 @@ FN="$(out FunctionName)"
 URL="$(out ApiUrl)"
 
 say "2/3 The code"
+# The server is TypeScript; Lambda gets the JavaScript built from it. The build also loads what it
+# built and asks it /health, so code that cannot start stops here, before anything is uploaded.
+(cd "$ROOT" && npm run --silent build:server)
 ZIP="$(mktemp -d)/backup.zip"
-(cd "$ROOT" && zip -q -X "$ZIP" lib/model.js server/backup-core.js server/aws/lambda.js server/aws/store-s3.js)
+(cd "$ROOT/server/dist" && zip -q -X "$ZIP" lib/model.js lib/package.json server/package.json server/backup-core.js server/public-summary.js server/auth.js server/aws/lambda.js server/aws/store-s3.js)
 aws lambda update-function-code --function-name "$FN" --zip-file "fileb://$ZIP" --query LastUpdateStatus --output text
 aws lambda wait function-updated --function-name "$FN"
 rm -f "$ZIP"
@@ -75,9 +86,10 @@ code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 listed="$(code -H "Authorization: Bearer $readkey" "$URL/backups")"
 missing="$(code -H "Authorization: Bearer $readkey" "$URL/backups/$(node -e 'process.stdout.write(require("crypto").randomBytes(16).toString("hex"))')/latest")"
 nokey="$(code "$URL/backups")"
+nobook="$(code "$URL/book/$(node -e 'process.stdout.write(require("crypto").randomBytes(16).toString("hex"))')")"
 unset readkey
-echo "listing backups with the key -> $listed (want 200); a phone with no backup -> $missing (want 404); without the key -> $nokey (want 401)"
-[ "$listed" = 200 ] && [ "$missing" = 404 ] && [ "$nokey" = 401 ] || { echo "Stopped: the server cannot read its bucket correctly. Logs: aws logs tail /aws/lambda/$FN --since 10m" >&2; exit 1; }
+echo "listing backups with the key -> $listed (want 200); a phone with no backup -> $missing (want 404); without the key -> $nokey (want 401); a setup code never used -> $nobook (want 404)"
+[ "$listed" = 200 ] && [ "$missing" = 404 ] && [ "$nokey" = 401 ] && [ "$nobook" = 404 ] || { echo "Stopped: the server cannot read its bucket correctly. Logs: aws logs tail /aws/lambda/$FN --since 10m" >&2; exit 1; }
 
 cat <<DONE
 

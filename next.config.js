@@ -11,5 +11,10 @@ module.exports = {
   devIndicators: false,
   agentRules: false, // don't write an AGENTS.md into the repo when `next dev` starts
   // The version shown in 设置 and used by the service worker comes from package.json.
-  env: { NEXT_PUBLIC_APP_VERSION: pkg.version },
+  env: {
+    NEXT_PUBLIC_APP_VERSION: pkg.version,
+    // The Google sign-in client for https://mum.franklee.asia (Google Cloud project dana-ledger).
+    // It is not a secret: it only says which app is asking. Who gets in is decided on the server.
+    NEXT_PUBLIC_GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '470400270105-s30gbijnga4l4681ul6tbsqb724ohiv5.apps.googleusercontent.com',
+  },
 };

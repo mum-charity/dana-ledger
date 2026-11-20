@@ -1,0 +1,6 @@
+{
+  // Turns the server into JavaScript in server/dist/, for AWS Lambda and for a Node older than 24.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": false },
+  "include": ["./*.ts", "./aws/*.ts", "../lib/model.d.ts"]
+}

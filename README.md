@@ -51,6 +51,8 @@ This means:
 
 - If the phone is lost or its browser data is cleared, the records can be restored from the last backup. Anything entered since then, while there was no signal, is lost.
 - The app warns on its home screen only when backups have been failing for 14 days, or 30 changes have never been backed up.
+- **Family members sign in with Google** and all share one book, kept on the server as well as on each device. See [Family sign-in and the shared book](#family-sign-in-and-the-shared-book).
+- A new phone can also load mum's book with a **setup link** the family makes. See [Putting mum's book on a new phone](#putting-mums-book-on-a-new-phone).
 - To put a backup on a phone, the family fetches the file from the backup server with the key, sends it to the phone, and loads it from the hidden 恢复记录 screen: tap the version line in 设置 five times, then 从备份文件恢复. The steps are in [server/aws/README.md](server/aws/README.md#restoring-a-phone).
 - Each phone, and each browser on it, backs up as a separate book.
 
@@ -66,7 +68,7 @@ npx http-server -c-1 out   # serves the built app, with offline mode, at http://
 **Trying things by hand on your own computer is safe.** At `localhost` the app keeps records in that browser only and never sends them to the backup server. At any other address, anything you enter is sent to the real backup server as a new phone's backup.
 
 ```sh
-npm test                                   # unit tests for the money/balance rules and the backup server
+npm test                                   # type-checks the backup server, then unit tests for the money/balance rules and the server
 npm run test:e2e                           # builds, then drives the real app on a phone-sized screen
 npm run build && node tests/upgrade.js     # a phone on 1.6.0 moves to this build and keeps its records
 ```
@@ -104,14 +106,81 @@ npm run deploy               # builds the app into out/, then uploads it
 | `components/sheets.jsx` | The forms that slide up (dialogs on desktop) |
 | `scripts/sw.template.js`, `scripts/build.js` | Offline cache. The build fills in the file list and writes `out/sw.js` |
 | `public/manifest.webmanifest`, `public/icons/` | Home-screen install |
-| `server/backup-core.js` | The backup server's rules: what it accepts, refuses and keeps. Shared by the Pi and AWS versions. Not part of the app's build |
-| `server/backup-server.js`, `server/store-disk.js`, `server/pi-setup.sh`, `server/dana-backup.*` | The version that runs on the family's Raspberry Pi and keeps files on its disk, with its systemd service and installer |
+| `server/backup-core.ts` | The backup server's rules: what it accepts, refuses and keeps. Shared by the Pi and AWS versions. Not part of the app's build |
+| `server/backup-server.ts`, `server/store-disk.ts`, `server/pi-setup.sh`, `server/dana-backup.*` | The version that runs on the family's Raspberry Pi and keeps files on its disk, with its systemd service and installer |
+| `server/tsconfig.json`, `server/package.json`, `scripts/build-server.mts`, `lib/model.d.ts` | The server is TypeScript on Node.js. Node 24 runs it as it is; `npm run build:server` turns it into JavaScript in `server/dist/` for AWS Lambda and the Pi. `model.d.ts` describes `lib/model.js`, which is still JavaScript, as are the screens |
+| `scripts/publish-book.mts` | For the family: publishes a book on the backup server and prints its setup link |
+| `server/auth.ts` | Family sign-in: checks Google's ID token and hands out the server's own session |
+| `shared/sync.ts` | The family's shared book: how two devices' records are combined, and the back-and-forth with the server. TypeScript, used by the app and the tests |
+| `scripts/seed-family.mts` | For the family: starts the shared book on the server from a book file |
+| `tests/sync.test.mts` | Tests for combining records and for syncing, against the real server code |
+| `server/public-summary.ts`, `scripts/publish-public.mts` | The public accounts: money totals only, made from the book on the server; and the script that publishes them |
 | `server/aws/` | The version for AWS, keeping backups in an S3 bucket. See [server/aws/README.md](server/aws/README.md) |
-| `tests/server.test.js` | Tests for the backup server, run against both the disk and S3 versions |
+| `tests/server.test.mts` | Tests for the backup server, run against both the disk and S3 versions |
 | `tests/model.test.js` | Unit tests for balances, prepayments, import and CSV |
 | `tests/e2e.js` | End-to-end test on a phone-sized screen, plus the desktop layout |
 | `tests/upgrade.js` | Moving a phone from 1.6.0 to this build |
 | `next.config.js`, `wrangler.jsonc` | Build settings (static export) and Cloudflare deploy settings |
+
+## Putting mum's book on a new phone
+
+**Not live yet.** This is in 2.2.0, which is not deployed: both the app and the backup server on AWS have to be deployed before a setup link works.
+
+The family publishes a book on the backup server under a **setup code**, 32 random hex digits. Whoever has the code can read that one book, and nothing else on the server. The family's key for reading backups is needed to publish, and never goes to a phone.
+
+```sh
+node scripts/publish-book.mts private/book.json                       # checks the file, sends nothing
+BACKUP_TOKEN=<the family key> node scripts/publish-book.mts private/book.json --send
+```
+
+The second command prints a link like `https://mum.franklee.asia/#/setup/<code>`.
+
+- **Android:** tap the link on the new phone. If the app has no records, it loads the book.
+- **iPhone:** a link opens in Safari, not in the installed app. Open 「善款簿」 from the home screen, tap the version line in 设置 five times, and paste the link under 「家人给的设置链接或设置码」.
+- A phone that already has records is not changed by the link. From 恢复记录 it asks first, then replaces them.
+- After loading, the phone works as before: records are kept on the phone and back up by themselves as that phone's own book. It does not fetch the shared book again.
+- **Treat the link like a password.** Anyone who gets it can read every name and amount in the book. To stop an old link working, publish under a new code; the old copy stays in the bucket until someone with AWS access removes it.
+- Keep the book file in `private/`, which git ignores.
+
+## Family sign-in and the shared book
+
+**Signed in with a family Google account, every device shows and changes the same book.** Not signed in, an empty browser shows only the [public accounts](#public-accounts-公开账目).
+
+- **Who gets in:** only the Google accounts on the family list, which is kept in the backup server's settings (`FAMILY_EMAILS`), never in this repo. Any other Google account signs in at Google and still gets nothing here. Taking an address off the list locks it out at once.
+- **What signing in does:** an empty device loads the family's book. A device that already has records of its own is asked first; if she agrees they are set aside (a copy is kept on the device) and replaced by the family's. If she says no, the device is not signed in and keeps its records.
+- **Working without signal:** the records still live on each device. Changes go up when there is signal, and the app looks for the family's changes when it is opened and every minute and a half while open.
+- **Two devices changing things:** each device's changes are combined record by record (`shared/sync.ts`). If both changed the same record, the device that syncs later keeps its version. A deletion is not applied over a record the other device changed meanwhile.
+- **Nothing is overwritten on the server:** the book is kept as numbered versions in the bucket under `family/`, every one of them for good. A device may write only if it has seen the newest version; otherwise it is told to fetch, combine and try again.
+- **Settings are per device:** text size and the currency sign are not shared.
+- **Signing out** (in 设置) leaves the records on the device; they stop following the family's. It is refused while there are changes that have not gone up.
+- **Each device still backs itself up** as before, as well.
+
+To change who is on the list, deploy the server again with the new list (it replaces the old one):
+
+```sh
+FAMILY_EMAILS='one@gmail.com,two@gmail.com' bash server/aws/deploy.sh
+```
+
+The Google sign-in client belongs to the Google Cloud project `dana-ledger`. It is in "testing", which limits sign-in to the test users listed there (Google Auth Platform → Audience), so a new family member is added in both places. Its client ID is in `next.config.js`; it is not a secret. The app sends the browser to Google and back to `https://mum.franklee.asia/` only, so sign-in does not work on `localhost`.
+
+To start the family's book from a file (only when there is none yet):
+
+```sh
+BACKUP_TOKEN=<the family key> node scripts/seed-family.mts private/book.json --send
+```
+
+**Not tried on a real iPhone.** In an installed iPhone app the trip to Google and back may open in Safari, which keeps separate records from the installed app.
+
+## Public accounts (公开账目)
+
+https://mum.franklee.asia/#/public shows, for anyone, each fund the family chose: how many names are on its list, what came in and went out each month, what is on hand, and the date and amount of each hand-over. **No names of donors, no amounts per person, no notes or reference numbers, and no 供养记录.** The backup server makes this summary from the book and keeps only the summary (`server/public-summary.ts`); `GET /public` needs no key.
+
+It does not update by itself. To publish or update it, list the funds to show and whom each one's money goes to in a file in `private/`, then:
+
+```sh
+node scripts/publish-public.mts private/book.json private/public-funds.json          # prints exactly what the public will see; sends nothing
+BACKUP_TOKEN=<the family key> node scripts/publish-public.mts private/book.json private/public-funds.json --send
+```
 
 ## First-time setup for mum
 

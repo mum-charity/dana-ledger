@@ -9,6 +9,7 @@
  * building the static page, where there is no window or localStorage.
  */
 import L from '../lib/model.js';
+import { syncOnce } from '../shared/sync.ts';
 
 export { L };
 export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION;
@@ -24,6 +25,8 @@ export const S = {
   confirm: null, // { title, message, ok, cancel, danger }
   toast: null, // { msg, actionLabel, action }
   toastShown: false,
+  signingIn: false, // back from Google, waiting for the server to say who it is
+  sync: { busy: false }, // the family's shared book: { busy, ok, at, error }
 };
 
 const STORE_KEY = 'dana-ledger:v1';
@@ -77,6 +80,7 @@ function save() {
   S.state.settings.changesSinceBackup = (S.state.settings.changesSinceBackup || 0) + 1;
   persist();
   serverChanged();
+  familyChanged();
   if (!askedPersist && navigator.storage && navigator.storage.persist) {
     askedPersist = true;
     navigator.storage.persist().catch(() => {});
@@ -164,7 +168,10 @@ const markPending = () => lsSet(KEY_PENDING, Math.random().toString(36).slice(2)
 function serverChanged() {
   if (backupOff) return;
   markPending();
-  scheduleUpload(3000);
+  // Signed in, every change already goes to the family's book, which keeps every version. This
+  // device's own backup then waits for a pause (or for the app to be put away), so the whole
+  // book is not sent twice after every tick.
+  scheduleUpload(account() ? 5 * 60 * 1000 : 3000);
 }
 function scheduleUpload(ms) {
   if (backupOff || !lsGet(KEY_PENDING)) return;
@@ -212,6 +219,245 @@ export function backupWarning() {
   return last ? `已经 ${daysSince(last)} 天没能自动备份` : '还没能自动备份';
 }
 
+// ================================================================ the family: Google sign-in and one shared book
+// Signed in with a family Google account, this device shows the family's one book and its
+// changes go to every other signed-in device. The records still live on the device, so it works
+// with no signal and catches up later. How two devices' changes are combined, and why nothing is
+// overwritten, is in shared/sync.ts; who may sign in is decided by the server (server/auth.ts).
+// Not signed in, a device with records keeps working by itself as before, and an empty one shows
+// the public accounts.
+const KEY_SESSION = 'dana-ledger:session'; // { session, email, expiresAt } from the server after sign-in
+const KEY_SYNC = 'dana-ledger:sync'; // { version, hashes }: what this device last combined with the family's book
+const KEY_SYNC_DIRTY = 'dana-ledger:sync-dirty'; // set while there are changes the family's book does not have yet
+const KEY_NONCE = 'dana-ledger:google-nonce'; // { nonce, at } while the browser is away at Google
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
+let GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
+
+function lsJSON(k) { try { return JSON.parse(lsGet(k)); } catch (_) { return null; } }
+
+/** Who is signed in on this device: { session, email, expiresAt }, or null. */
+export function account() {
+  const a = lsJSON(KEY_SESSION);
+  return a && typeof a.session === 'string' && typeof a.email === 'string' && a.expiresAt > Date.now() ? a : null;
+}
+/** Whether to offer sign-in here. Not on a developer's own computer: Google only knows the real site. */
+export const canSignIn = () => !!GOOGLE_CLIENT_ID && !backupOff;
+/** Changes on this device that the family's book does not have yet. */
+export const hasUnsynced = () => !!account() && !!lsGet(KEY_SYNC_DIRTY);
+
+/** Send the browser to Google to choose an account. It comes back to this page (see takeSignIn). */
+export function signInWithGoogle() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const nonce = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  // Kept so the answer can be matched to this request. Not sessionStorage: on iPhone the way
+  // back from Google may be a new page of the installed app.
+  lsSet(KEY_NONCE, JSON.stringify({ nonce, at: Date.now() }));
+  const q = new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, redirect_uri: location.origin + location.pathname, response_type: 'id_token', scope: 'openid email', nonce, prompt: 'select_account' });
+  location.assign(`${GOOGLE_AUTH}?${q}`);
+}
+
+/**
+ * Google sent the browser back with its answer after the # in the address. It is taken out of
+ * the address at once, before anything else reads it, so the token is not left in the address
+ * bar or the history. Returns true if this page load was such a return.
+ */
+function takeSignIn() {
+  const hash = location.hash.slice(1);
+  if (hash.startsWith('/') || !/(^|&)(id_token|error)=/.test(hash)) return false;
+  const answer = new URLSearchParams(hash);
+  history.replaceState(history.state, '', '#/');
+  const asked = lsJSON(KEY_NONCE);
+  lsDel(KEY_NONCE);
+  const credential = answer.get('id_token');
+  if (!credential) showToast('没有登入。', { ms: 5000 });
+  else if (!asked || typeof asked.nonce !== 'string' || Date.now() - asked.at > 15 * 60 * 1000) showToast('登入超时了，请再试一次。', { ms: 6000 });
+  else finishSignIn(credential, asked.nonce);
+  return true;
+}
+
+async function finishSignIn(credential, nonce) {
+  S.signingIn = true;
+  emit();
+  try {
+    let res;
+    try {
+      res = await fetch(`${SERVER}/session`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential, nonce }), cache: 'no-store' });
+    } catch (e) {
+      showToast('连不上服务器，请稍后再登入。', { ms: 8000 });
+      return;
+    }
+    if (res.status === 403) {
+      showToast('这个 Google 帐号不在家人名单里，只能看公开账目。', { ms: 9000 });
+      return;
+    }
+    if (!res.ok) {
+      showToast(`登入没有成功（${res.status}），请再试一次。`, { ms: 8000 });
+      return;
+    }
+    const a = await res.json();
+    lsSet(KEY_SESSION, JSON.stringify({ session: a.session, email: a.email, expiresAt: a.expiresAt }));
+    showToast(`已登入：${a.email}`, { ms: 5000 });
+  } finally {
+    S.signingIn = false;
+    emit();
+  }
+  syncNow();
+}
+
+let syncTimer = null;
+let syncing = false;
+let syncWanted = false;
+// Goes up whenever the records are replaced from outside the shared book. A sync that was in
+// flight then must not touch the records or the "last synced" note it would have written.
+let familyEpoch = 0;
+
+/** Stop following the family's book: sign out here and forget what was last synced. */
+function leaveFamily() {
+  familyEpoch++;
+  clearTimeout(syncTimer);
+  lsDel(KEY_SESSION);
+  lsDel(KEY_SYNC);
+  lsDel(KEY_SYNC_DIRTY);
+  S.sync = { busy: false };
+}
+
+/** fetch that gives up after a minute, so one request that never answers cannot stall syncing for good. */
+function fetchOrGiveUp(url, init) {
+  const ctl = new AbortController();
+  setTimeout(() => ctl.abort(), 60000); // covers reading the answer too; harmless once it is done
+  return fetch(url, { ...init, signal: ctl.signal });
+}
+
+/** Note a change to the records, and send it to the family's book soon. */
+function familyChanged() {
+  if (!account()) return;
+  lsSet(KEY_SYNC_DIRTY, Math.random().toString(36).slice(2));
+  scheduleSync(3000);
+}
+function scheduleSync(ms) {
+  if (!account()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, ms);
+}
+
+/** Fetch what the family changed, combine it with this device's records, and send back what is new here. */
+export async function syncNow() {
+  clearTimeout(syncTimer);
+  if (!account()) return false;
+  if (syncing) {
+    syncWanted = true; // something changed while a sync was running: go once more after it
+    return false;
+  }
+  syncing = true;
+  syncWanted = false;
+  S.sync = { ...S.sync, busy: true };
+  emit();
+  const dirty = lsGet(KEY_SYNC_DIRTY);
+  const epoch = familyEpoch;
+  const stillFamily = () => {
+    if (epoch !== familyEpoch) throw new Error('the records were replaced while syncing');
+  };
+  let result;
+  try {
+    result = await syncOnce({
+      server: SERVER,
+      session: () => { const a = account(); return a ? a.session : null; },
+      local: () => S.state,
+      apply: (state, replacing) => {
+        stillFamily();
+        // Records of this device's own that are being set aside for the family's are kept, like before a restore.
+        if (replacing) { try { localStorage.setItem(STORE_KEY + ':before-restore', JSON.stringify(S.state)); } catch (_) { /* ignore */ } }
+        const before = S.state;
+        S.state = state;
+        persist();
+        if (!S.storageOK) {
+          // The phone could not save them. Stop here, before the "last synced" note is written:
+          // with the note but without the records, the next sync would take every record the
+          // family added as deleted on this phone, and delete it for everyone.
+          S.state = before;
+          throw new Error('这部手机存不下记录');
+        }
+        applyFontSize();
+        serverChanged(); // this device's own backup follows, as always
+        emit();
+      },
+      meta: () => lsJSON(KEY_SYNC),
+      setMeta: (m) => {
+        stillFamily();
+        lsSet(KEY_SYNC, JSON.stringify(m));
+      },
+      confirmReplace: (theirs) =>
+        confirmBox({
+          title: '改用家里共用的记录？',
+          message: (
+            <>
+              {`家里共用的记录有 ${theirs.funds.length} 个项目、${theirs.members.length} 人、${theirs.receipts.length} 笔收款。`}
+              <br />
+              这部手机<strong>现在自己的记录会被收起来</strong>，换成家里共用的。
+            </>
+          ),
+          ok: '是，用家里共用的',
+          cancel: '不要，保留现在的',
+          danger: true,
+        }),
+      fetch: fetchOrGiveUp,
+    });
+  } catch (e) {
+    console.error('sync failed', e);
+    result = { ok: false, why: 'error', message: String((e && e.message) || e) };
+  }
+  syncing = false;
+
+  if (result.ok) {
+    // Changes made while the sync was running are still waiting; anything older has gone up.
+    if (lsGet(KEY_SYNC_DIRTY) === dirty) lsDel(KEY_SYNC_DIRTY);
+    S.sync = { busy: false, ok: true, at: Date.now() };
+    if (result.pulled) showToast('已更新成家里最新的记录');
+  } else if (result.why === 'signed-out') {
+    if (account()) {
+      lsDel(KEY_SESSION);
+      showToast('登入已经失效，请再登入一次。', { ms: 8000 });
+    }
+    S.sync = { busy: false };
+  } else if (result.why === 'declined') {
+    // She kept this device's own records, so it is not signed in to the family's.
+    lsDel(KEY_SESSION);
+    S.sync = { busy: false };
+    showToast('没有登入：这部手机保留自己的记录。', { ms: 7000 });
+  } else {
+    const error = result.why === 'offline' ? '没有网络' : result.why === 'no-book' ? '家里还没有共用的记录' : '同步没有成功';
+    S.sync = { busy: false, ok: false, at: Date.now(), error };
+  }
+  emit();
+  if (syncWanted || (result.ok && lsGet(KEY_SYNC_DIRTY))) scheduleSync(1000);
+  else if (!result.ok && account()) scheduleSync(60000); // no signal, or the server was busy: try again in a minute
+  return result.ok;
+}
+
+/** Sign out of the family's book. The records stay on this device; they just stop following the family's. */
+export async function signOut() {
+  if (!account()) return;
+  // Anything not yet in the family's book would be stranded here, so it goes up first.
+  if (lsGet(KEY_SYNC_DIRTY)) await syncNow();
+  if (lsGet(KEY_SYNC_DIRTY)) {
+    showToast('还有更改没传到家里的记录。请连上网络，等同步好了再登出。', { ms: 9000 });
+    return;
+  }
+  const yes = await confirmBox({
+    title: '登出？',
+    message: '登出后，记录还留在这部手机，但不会再和家人的同步。',
+    ok: '登出',
+    cancel: '不要',
+  });
+  if (!yes) return;
+  clearTimeout(syncTimer);
+  lsDel(KEY_SESSION);
+  S.sync = { busy: false };
+  emit();
+  showToast('已登出');
+}
+
 // ================================================================ helpers
 export const cur = () => S.state.settings.currency || '';
 export const money = (c) => L.fmtMoney(c, cur());
@@ -224,6 +470,10 @@ export const thisYear = () => +L.currentMonth().slice(0, 4);
 // #/f/<id>/p            people list
 // #/settings
 // #/restore             for the family: load a backup file (five taps on the version line in 设置)
+// #/setup/<code>        the family's setup link: an empty phone loads mum's book (see takeSetupLink)
+// #/public              公开账目: the funds' totals for anyone, with no names (see fetchPublicAccounts)
+// #/new                 the empty book's welcome, for starting a book on this device without signing in
+// (none)                home; or, with no records and nobody signed in, the public accounts
 export function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'f' && parts[1]) {
@@ -236,6 +486,11 @@ export function route() {
   if (parts[0] === 'offerings') return { name: 'offerings' };
   if (parts[0] === 'settings') return { name: 'settings' };
   if (parts[0] === 'restore') return { name: 'restore' };
+  if (parts[0] === 'public') return { name: 'public' };
+  if (parts[0] === 'new') return { name: 'home' };
+  // A visitor: no records here and nobody signed in. They get the public accounts, with the
+  // family's sign-in on it, not an empty book to fill in.
+  if (!parts.length && !S.state.funds.length && !account() && !S.signingIn) return { name: 'public', landing: true };
   return { name: 'home' };
 }
 
@@ -412,6 +667,7 @@ async function confirmAndRestore(parsed, what) {
         {`备份里有 ${n.funds.length} 个项目、${n.members.length} 人、${n.receipts.length} 笔收款。`}
         <br />
         手机里<strong>现在的记录会被取代</strong>。
+        {account() ? <><br />这部手机也会<strong>登出</strong>家里共用的记录。</> : null}
       </>
     ),
     ok: '是，恢复备份',
@@ -419,14 +675,142 @@ async function confirmAndRestore(parsed, what) {
   });
   if (!yes) return false;
   try { localStorage.setItem(STORE_KEY + ':before-restore', JSON.stringify(S.state)); } catch (_) { /* ignore */ }
-  S.state = n;
+  adopt(n);
+  showToast(`已恢复${parsed.dropped ? `（有 ${parsed.dropped} 笔坏掉的记录被跳过）` : ''}`, { ms: 5000 });
+  return true;
+}
+
+/**
+ * Make checked records this phone's records, and show the home screen.
+ *
+ * These records come from a backup file or a setup code, not from the family's shared book, so
+ * the device leaves the shared book: it is signed out and forgets what it last synced. If it
+ * kept that note, the next sync would read every record the restored book lacks as "deleted
+ * here" and delete it from the family's book for everyone. Signing in again asks first.
+ */
+function adopt(state) {
+  leaveFamily();
+  S.state = state;
   S.state.settings.lastBackupAt = Date.now();
   S.state.settings.changesSinceBackup = 0;
   persist();
   applyFontSize();
   nav('#/', true);
-  showToast(`已恢复${parsed.dropped ? `（有 ${parsed.dropped} 笔坏掉的记录被跳过）` : ''}`, { ms: 5000 });
-  return true;
+}
+
+// ================================================================ the family's book, by setup code
+// How a new phone gets mum's records. The family publishes her book on the backup server under a
+// setup code: 32 random hex digits, which is the only thing that opens it. The phone gets the
+// code in a link (#/setup/<code>) or pasted into 恢复记录, fetches that one book, and from then on
+// works like any phone: the records live here and back up by themselves. The family's key for
+// reading backups is never involved.
+const SETUP_CODE = /(?:^|[^0-9a-f])([0-9a-f]{32})(?![0-9a-f])/i;
+/** The setup code in what was typed or pasted: the code by itself, or the whole link. */
+export function setupCodeFrom(text) {
+  const m = SETUP_CODE.exec(String(text == null ? '' : text).trim());
+  return m ? m[1].toLowerCase() : null;
+}
+
+async function fetchBook(code) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 30000);
+  let res;
+  try {
+    res = await fetch(`${SERVER}/book/${code}`, { cache: 'no-store', signal: ctl.signal });
+  } catch (e) {
+    throw new Error(navigator.onLine === false ? '没有网络' : '连不上服务器');
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.status === 404) throw new Error('设置码不对，或者已经换了新的');
+  if (!res.ok) throw new Error(`服务器出错（${res.status}）`);
+  let parsed;
+  try {
+    parsed = L.normalizeState(await res.json());
+  } catch (e) {
+    throw new Error('收到的记录格式不对');
+  }
+  if (!parsed.state.funds.length) throw new Error('收到的记录是空的');
+  return parsed;
+}
+
+let loadingBook = false;
+/**
+ * Fetch the book under a setup code and make it this phone's records. A phone that already has
+ * records is left alone unless `replace` is set, and then it asks first, like restoring a file.
+ * Returns true if the records were loaded.
+ */
+async function loadBook(code, { replace = false } = {}) {
+  if (loadingBook) return false;
+  loadingBook = true;
+  try {
+    showToast('正在载入记录…', { ms: 35000 });
+    let parsed;
+    try {
+      parsed = await fetchBook(code);
+    } catch (e) {
+      showToast('没能载入记录：' + e.message, { ms: 8000 });
+      return false;
+    }
+    // Looked at again after the wait: she may have started a book of her own meanwhile.
+    if (S.state.funds.length) {
+      if (!replace) {
+        showToast('这部手机已经有记录，没有更改。', { ms: 8000 });
+        return false;
+      }
+      if (!(await confirmAndRestore(parsed, '家人准备的记录'))) return false;
+    } else {
+      const n = parsed.state;
+      adopt(n);
+      showToast(`已载入 ${n.funds.length} 个项目、${n.members.length} 人的记录`, { ms: 6000 });
+    }
+    serverChanged(); // from now on this phone backs the book up as its own
+    return true;
+  } finally {
+    loadingBook = false;
+  }
+}
+
+// ================================================================ public accounts
+// #/public shows the funds' money totals that the family published on the backup server, for
+// anyone. It has no names in it (the server makes it that way) and never reads this phone's records.
+/** The published accounts, or throws with a message to show. */
+export async function fetchPublicAccounts() {
+  let res;
+  try {
+    res = await fetch(`${SERVER}/public`, { cache: 'no-store' });
+  } catch (e) {
+    throw new Error(navigator.onLine === false ? '没有网络，请连上网络再看。' : '连不上服务器，请稍后再看。');
+  }
+  if (res.status === 404) throw new Error('还没有公开的账目。');
+  if (!res.ok) throw new Error(`服务器出错（${res.status}），请稍后再看。`);
+  const data = await res.json();
+  if (!data || data.app !== 'dana-ledger-public' || !Array.isArray(data.funds)) throw new Error('收到的账目格式不对。');
+  return data;
+}
+
+/** From 恢复记录, for the family: load the book under the code or link they pasted. */
+export async function loadBookFromText(text) {
+  const code = setupCodeFrom(text);
+  if (!code) {
+    showToast('请贴上家人给的设置链接或设置码。', { ms: 6000 });
+    return false;
+  }
+  return loadBook(code, { replace: true });
+}
+
+/**
+ * A setup link was opened (#/setup/<code>). The code is taken out of the address at once, so it
+ * is not left in the address bar or the phone's history. Only an empty phone loads the book.
+ */
+function takeSetupLink() {
+  const m = /^#\/setup(?:\/([^/?#]*))?/.exec(location.hash);
+  if (!m) return;
+  history.replaceState(history.state, '', '#/');
+  const code = setupCodeFrom(m[1]);
+  if (!code) showToast('这个设置链接不完整，请向家人再要一次。', { ms: 8000 });
+  else if (S.state.funds.length) showToast('这部手机已经有记录，没有更改。', { ms: 8000 });
+  else loadBook(code);
 }
 
 export async function shareText(text) {
@@ -465,6 +849,10 @@ export function init() {
 
   S.state = loadState();
   applyFontSize();
+  // A stand-in for Google's sign-in page, named by the tests.
+  if (window.LEDGER_GOOGLE_AUTH) GOOGLE_AUTH = window.LEDGER_GOOGLE_AUTH;
+  // Before anything reads the address: Google's answer may be in it.
+  takeSignIn();
 
   const UA = navigator.userAgent;
   phone.ios = /iPad|iPhone|iPod/.test(UA) || (/Macintosh/.test(UA) && navigator.maxTouchPoints > 1);
@@ -489,7 +877,10 @@ export function init() {
     if (S.sheet && !(history.state && history.state.sheet)) hideSheet();
     emit();
   });
-  window.addEventListener('hashchange', emit);
+  window.addEventListener('hashchange', () => {
+    takeSetupLink();
+    emit();
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (S.confirm) closeConfirm(false);
@@ -507,11 +898,25 @@ export function init() {
 
   // Send changes still waiting for the server when the signal comes back or the app is reopened,
   // and try once more as the app goes into the background.
-  window.addEventListener('online', () => scheduleUpload(1000));
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') scheduleUpload(1000);
-    else if (lsGet(KEY_PENDING)) uploadNow();
+  window.addEventListener('online', () => {
+    scheduleUpload(1000);
+    scheduleSync(1500);
   });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      scheduleUpload(1000);
+      scheduleSync(500); // someone else may have changed the family's book while this was in a pocket
+    } else if (lsGet(KEY_PENDING)) uploadNow();
+  });
+  // While the app is open and in view, look for the family's changes every minute and a half.
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && account() && !syncing) syncNow();
+  }, 90000);
+  // Another tab signed in or out.
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY_SESSION) emit();
+  });
+  scheduleSync(800);
   // Records that have never reached the server (for example, from before automatic backup) go now.
   if (!backupOff && S.state.funds.length && !lsGet(KEY_STATUS)) markPending();
   scheduleUpload(2000);
@@ -527,4 +932,5 @@ export function init() {
 
   S.ready = true;
   emit();
+  takeSetupLink();
 }

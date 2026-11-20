@@ -17,6 +17,15 @@ Parameters:
     Type: Number
     Default: 1073741824
     Description: All backups together. Once reached, new uploads are refused; nothing is deleted.
+  GoogleClientId:
+    Type: String
+    Default: ''
+    Description: Optional. The Google sign-in client ID the app uses. Not a secret.
+  FamilyEmails:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Optional. Comma-separated Google accounts that may open and change the family's shared book.
   RequestsPerSecond:
     Type: Number
     Default: 2
@@ -110,7 +119,10 @@ Resources:
                 Action:
                   - s3:GetObject
                   - s3:PutObject
-                Resource: !Sub '${Bucket.Arn}/devices/*'
+                Resource:
+                  - !Sub '${Bucket.Arn}/devices/*'
+                  - !Sub '${Bucket.Arn}/books/*'
+                  - !Sub '${Bucket.Arn}/family/*'
               - Effect: Allow
                 Action: s3:ListBucket
                 Resource: !GetAtt Bucket.Arn
@@ -138,6 +150,8 @@ Resources:
           BACKUP_BUCKET: !Ref Bucket
           ALLOWED_ORIGINS: !Ref AllowedOrigins
           QUOTA_BYTES: !Ref QuotaBytes
+          GOOGLE_CLIENT_ID: !Ref GoogleClientId
+          FAMILY_EMAILS: !Ref FamilyEmails
       # A stand-in until deploy.sh uploads the real code (server/ and lib/model.js).
       Code:
         ZipFile: |

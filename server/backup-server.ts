@@ -2,7 +2,10 @@
 /*
  * 善款簿 backup server for a computer of your own: keeps a copy of the records off the phone,
  * as files on this computer's disk. It runs on the home Raspberry Pi behind a Cloudflare Tunnel.
- * Node 18+, no packages. What it accepts and refuses is in backup-core.js.
+ * No packages. What it accepts and refuses is in backup-core.ts.
+ *
+ * It is written in TypeScript. Node 24 runs this file as it is; for an older Node (18+), run
+ * `npm run build:server` and start server/dist/server/backup-server.js instead.
  *
  * Settings come from the environment (see server/dana-backup.env.example):
  *   BACKUP_TOKEN     required, 32+ characters: the key for reading backups ("Authorization: Bearer <key>")
@@ -10,21 +13,33 @@
  *   ALLOWED_ORIGINS  comma-separated sites the app runs on (default: https://mum.franklee.asia)
  *   PORT, HOST       default 8787 on 127.0.0.1, so only the tunnel on the same Pi can reach it
  */
-'use strict';
-const http = require('http');
-const path = require('path');
-const { createBackupService, httpError } = require('./backup-core.js');
-const { createDiskStore } = require('./store-disk.js');
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createBackupService, httpError } from './backup-core.ts';
+import { createDiskStore } from './store-disk.ts';
 
 const HOUR = 60 * 60 * 1000;
 
+export interface BackupServerOptions {
+  token: string | undefined;
+  dir: string;
+  origins?: string[];
+  maxBytes?: number;
+  quotaBytes?: number;
+  /** From one internet address. */
+  uploadsPerHour?: number;
+  now?: () => number;
+}
+
 /** Read the request body, refusing anything over maxBytes. */
-function readBody(req, maxBytes) {
+function readBody(req: http.IncomingMessage, maxBytes: number): Promise<string> {
   return new Promise((resolve, reject) => {
     if (Number(req.headers['content-length']) > maxBytes) return reject(httpError(413, 'backup too large'));
-    const chunks = [];
+    const chunks: Buffer[] = [];
     let size = 0;
-    req.on('data', (c) => {
+    req.on('data', (c: Buffer) => {
       size += c.length;
       if (size <= maxBytes) chunks.push(c);
     });
@@ -33,11 +48,11 @@ function readBody(req, maxBytes) {
   });
 }
 
-function createBackupServer({ token, dir, origins, maxBytes, quotaBytes, uploadsPerHour = 120 /* from one internet address */, now = Date.now }) {
+export function createBackupServer({ token, dir, origins, maxBytes, quotaBytes, uploadsPerHour = 120, now = Date.now }: BackupServerOptions): http.Server {
   // Uploads per internet address in the current hour. cloudflared passes the phone's address in
   // CF-Connecting-IP; only cloudflared can reach this server, so the header can be trusted.
-  const uploadCounts = new Map(); // ip -> { start, count }
-  function allowUpload(ip) {
+  const uploadCounts = new Map<string | undefined, { start: number; count: number }>();
+  function allowUpload(ip: string | undefined): boolean {
     const t = now();
     if (uploadCounts.size > 10000) for (const [k, v] of uploadCounts) if (t - v.start >= HOUR) uploadCounts.delete(k);
     let c = uploadCounts.get(ip);
@@ -48,11 +63,12 @@ function createBackupServer({ token, dir, origins, maxBytes, quotaBytes, uploads
   const service = createBackupService({ token, store: createDiskStore(dir), origins, maxBytes, quotaBytes, allowUpload, now });
 
   return http.createServer(async (req, res) => {
+    const forwarded = req.headers['cf-connecting-ip'];
     const out = await service.handle({
       method: req.method,
       url: req.url,
       headers: req.headers,
-      ip: req.headers['cf-connecting-ip'] || req.socket.remoteAddress,
+      ip: (Array.isArray(forwarded) ? forwarded[0] : forwarded) || req.socket.remoteAddress,
       readBody: (max) => readBody(req, max),
     });
     res.writeHead(out.status, out.headers);
@@ -60,13 +76,13 @@ function createBackupServer({ token, dir, origins, maxBytes, quotaBytes, uploads
   });
 }
 
-module.exports = { createBackupServer };
-
-if (require.main === module) {
+const thisFile = fileURLToPath(import.meta.url);
+const startedDirectly = !!process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(thisFile);
+if (startedDirectly) {
   const env = process.env;
   const server = createBackupServer({
     token: env.BACKUP_TOKEN,
-    dir: path.resolve(env.BACKUP_DIR || path.join(__dirname, '..', 'data')),
+    dir: path.resolve(env.BACKUP_DIR || path.join(path.dirname(thisFile), '..', 'data')),
     origins: (env.ALLOWED_ORIGINS || 'https://mum.franklee.asia').split(',').map((s) => s.trim()).filter(Boolean),
   });
   const port = Number(env.PORT) || 8787;

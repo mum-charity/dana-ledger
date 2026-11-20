@@ -23,6 +23,46 @@ const server = http.createServer((req, res) => {
     req.on('end', () => { if (req.method === 'PUT') backups.push({ path: p, body }); res.writeHead(200); res.end('{}'); });
     return;
   }
+  if (p === '/session' || p.startsWith('/family')) {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const send = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data)); };
+      if (p === '/session') {
+        const { credential, nonce } = JSON.parse(body);
+        const claims = JSON.parse(Buffer.from(credential.split('.')[1], 'base64url').toString());
+        if (claims.nonce !== nonce) return send(401, { error: 'sign-in not accepted' });
+        if (!FAMILY.includes(claims.email)) return send(403, { error: 'not on the family list' });
+        return send(200, { session: 'session-of-' + claims.email, email: claims.email, expiresAt: Date.parse('2027-06-01') });
+      }
+      // The family's book: numbered versions, and a write only from whoever has seen the newest.
+      const who = /^Bearer session-of-(.+)$/.exec(req.headers.authorization || '');
+      if (!who || !FAMILY.includes(who[1])) return send(401, { error: 'sign in' });
+      const after = /^\/family\/after\/(\d+)$/.exec(p);
+      const head = familyVersions.length;
+      if (req.method === 'GET') {
+        if (!head) return send(404, { error: 'no family book yet' });
+        if (after && +after[1] === head) return send(200, { version: head, unchanged: true });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(`{"version":${head},"book":${familyVersions[head - 1]}}`);
+      }
+      if (!after || +after[1] !== head) return send(409, { version: head });
+      familyVersions.push(body);
+      return send(201, { version: head + 1 });
+    });
+    return;
+  }
+  // The public accounts: totals only, as the backup server makes them.
+  if (p === '/public') {
+    res.writeHead(publicAccounts ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(publicAccounts ? JSON.stringify(publicAccounts) : '{"error":"nothing published yet"}');
+  }
+  // The family's book, published under a setup code: only that code opens it.
+  if (p.startsWith('/book/')) {
+    const found = req.method === 'GET' && p === '/book/' + SETUP_CODE && sharedBook;
+    res.writeHead(found ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(found ? sharedBook : '{"error":"no book under this code"}');
+  }
   if (p.endsWith('/')) p += 'index.html';
   const file = path.join(appDir, p);
   if (!file.startsWith(appDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('404'); }
@@ -30,7 +70,32 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 
+// A stand-in for Google's sign-in page, at an address of its own as the real one is (the app's
+// offline cache answers every page at the app's own address). It sends the browser straight back
+// with a token for whichever account the test "chose"; the stand-in server above takes it on trust.
+const fakeGoogle = http.createServer((req, res) => {
+  const q = new URL(req.url, 'http://x').searchParams;
+  const claims = Buffer.from(JSON.stringify({ email: googleAccount, nonce: q.get('nonce'), aud: q.get('client_id') })).toString('base64url');
+  res.writeHead(302, { Location: `${q.get('redirect_uri')}#id_token=h.${claims}.s&authuser=0&prompt=none` });
+  res.end();
+});
+
 const backups = []; // every PUT /backup/<id> the app made
+const SETUP_CODE = '5e7'.padEnd(32, 'c'); // a setup code, as the family would make
+let sharedBook = null; // the book the family published under it
+let publicAccounts = null; // what GET /public answers
+const FAMILY = ['mum@example.com', 'son@example.com']; // the Google accounts on the family list
+let googleAccount = 'mum@example.com'; // the account "chosen" at the stand-in for Google
+const familyVersions = []; // every version of the family's shared book, oldest first
+const months2026 = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}`);
+const PUBLIC_FIXTURE = {
+  app: 'dana-ledger-public', version: 1, updatedAt: '2026-11-19T04:00:00.000Z', currency: 'RM', year: 2026, notice: '账目从旧簿抄入，正在核对中',
+  funds: [{
+    name: '公开测试项目', recipient: 'Bao Guo Vihara', people: 12, carriedIn: 0, received: 36000, paidOut: 30000, onHand: 6000,
+    months: months2026.map((month, i) => ({ month, received: i < 3 ? 12000 : 0, paidOut: i === 1 ? 30000 : 0, balance: i === 0 ? 12000 : 6000 })),
+    payouts: [{ date: '2026-02-28', amount: 30000 }],
+  }],
+};
 let failures = 0;
 function check(cond, msg) {
   console.log((cond ? '  ok   ' : '  FAIL ') + msg);
@@ -40,24 +105,36 @@ function check(cond, msg) {
 (async () => {
   await new Promise((r) => server.listen(0, r));
   const base = `http://localhost:${server.address().port}/`;
+  await new Promise((r) => fakeGoogle.listen(0, r));
+  const googleUrl = `http://localhost:${fakeGoogle.address().port}/auth`;
   const browser = await chromium.launch({ channel: process.env.E2E_CHANNEL || 'msedge' });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'zh-CN', acceptDownloads: true });
   await context.clock.setFixedTime(new Date('2026-11-06T10:00:00'));
   // Keep the test's made-up records away from the real backup server.
-  await context.addInitScript(() => { window.LEDGER_BACKUP_SERVER = location.origin; });
+  const pointAtTestServer = (google) => { window.LEDGER_BACKUP_SERVER = location.origin; window.LEDGER_GOOGLE_AUTH = google; };
+  await context.addInitScript(pointAtTestServer, googleUrl);
   const page = await context.newPage();
   const outside = []; // requests to anywhere but the test server
-  context.on('request', (r) => { if (/^https?:/.test(r.url()) && !r.url().startsWith(base)) outside.push(r.url()); });
+  const isOutside = (url) => /^https?:/.test(url) && !url.startsWith(base) && !url.startsWith(googleUrl);
+  context.on('request', (r) => { if (isOutside(r.url())) outside.push(r.url()); });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   // While offline the browser logs each backup attempt that can't connect. That one is expected;
   // the offline section checks separately that nothing else was fetched.
   let offline = false;
-  page.on('console', (m) => { if (m.type() === 'error' && !(offline && m.text().includes('ERR_INTERNET_DISCONNECTED'))) errors.push(m.text()); });
+  // The browser reports a 404 as an error; the one the wrong setup code is meant to get is not a fault.
+  // So is the public page's, before anything has been published.
+  const wrongCode404 = (m) => (m.location().url || '').endsWith('/book/' + 'd'.repeat(32)) || (!publicAccounts && (m.location().url || '').endsWith('/public'));
+  page.on('console', (m) => { if (m.type() === 'error' && !(offline && m.text().includes('ERR_INTERNET_DISCONNECTED')) && !wrongCode404(m)) errors.push(m.text()); });
   const shot = (name) => page.screenshot({ path: path.join(shotDir, name + '.png'), fullPage: true, animations: 'disabled' });
   const text = (sel) => page.locator(sel).first().innerText();
 
+  // A visitor with no records, not signed in, gets the public accounts and the family's sign-in.
   await page.goto(base);
+  await page.waitForSelector('[data-role=family-sign-in]');
+  check(await page.locator('[data-page=public]').isVisible() && !(await page.locator('text=欢迎使用善款簿').count()), 'an empty browser that is not signed in shows the public accounts, with the family sign-in');
+  // Starting a book on this device without signing in is still possible.
+  await page.click('[data-action=start-new]');
   await page.waitForSelector('.empty');
   await shot('01-home-empty');
   check(await page.locator('text=欢迎使用善款簿').isVisible(), 'empty home shows welcome');
@@ -245,7 +322,8 @@ function check(cond, msg) {
 
     // --- restore: wipe the phone, open the hidden 恢复记录 screen, load the backup, everything comes back
     await page.evaluate(() => localStorage.clear());
-    await page.goto(base);
+    await page.goto('about:blank');
+    await page.goto(base + '#/new');
     await page.waitForSelector('text=欢迎使用善款簿');
     check(!(await page.locator('.fund-card').count()), 'wiped storage shows empty app');
     await page.click('text=设置');
@@ -263,9 +341,217 @@ function check(cond, msg) {
     await page.reload();
     await page.waitForSelector('.fund-card');
     check((await text('.fund-card')).includes('RM 299'), 'restored data survives reload');
+
+    // --- setup link: the family publishes her book under a code; an empty phone opened with the link loads it
+    sharedBook = sent.body;
+    const receiptsOnPhone = () => page.evaluate(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:v1')).receipts.length; } catch (_) { return 0; } });
+    const freshPhone = async (hash) => {
+      await page.evaluate(() => localStorage.clear());
+      await page.goto('about:blank'); // so the app starts again, as when a link is tapped in WhatsApp
+      await page.goto(base + hash);
+    };
+    await freshPhone('#/setup/' + 'd'.repeat(32));
+    await page.waitForSelector('#toast:has-text("没能载入记录")');
+    check(!(await page.locator('.fund-card').count()) && (await text('#toast')).includes('设置码不对'), 'a setup link with the wrong code loads nothing and says so');
+    check(!page.url().includes('d'.repeat(32)), 'the code is taken out of the address');
+
+    await freshPhone('#/setup/' + SETUP_CODE);
+    await page.waitForSelector('.fund-card');
+    check((await text('.fund-card')).includes('RM 299') && (await receiptsOnPhone()) === 14, 'an empty phone opened with the setup link loads the book: RM 299, 14 receipts');
+    check(!page.url().includes(SETUP_CODE) && !(await page.evaluate(() => JSON.stringify(localStorage))).includes('5e7ccc'), 'the setup code is not left in the address or kept on the phone');
+    await shot('11b-setup-link');
+    const uploadsBefore = backups.length;
+    for (let i = 0; i < 100 && backups.length === uploadsBefore; i++) await page.waitForTimeout(100);
+    const newId = await page.evaluate(() => localStorage.getItem('dana-ledger:device-id'));
+    check(backups.length > uploadsBefore && backups[backups.length - 1].path === '/backup/' + newId && newId !== deviceId, 'the phone then backs the book up as its own, under a new id');
+    await page.reload();
+    await page.waitForSelector('.fund-card');
+    check((await receiptsOnPhone()) === 14, 'the loaded book survives reload');
+
+    // A phone that already has records is left alone by the link.
+    await page.click('.fund-card');
+    await page.waitForSelector('.people');
+    await page.evaluate((code) => { location.hash = '#/setup/' + code; }, SETUP_CODE);
+    await page.waitForSelector('#toast:has-text("已经有记录")');
+    check((await receiptsOnPhone()) === 14 && !page.url().includes(SETUP_CODE), 'the setup link changes nothing on a phone that already has records');
+
+    // From 恢复记录 the family can paste the whole link; a phone with records is asked first.
+    await page.goto(base + '#/restore');
+    await page.waitForSelector('[data-action=load-book]');
+    await page.fill('input[name=code]', 'not a code');
+    await page.click('[data-action=load-book]');
+    await page.waitForSelector('#toast:has-text("请贴上")');
+    await page.fill('input[name=code]', '妈妈的记录： ' + base + '#/setup/' + SETUP_CODE.toUpperCase());
+    await page.click('[data-action=load-book]');
+    await page.waitForSelector('.confirm');
+    check((await text('.confirm')).includes('14 笔收款'), 'pasting the setup link in 恢复记录 asks before replacing the records');
+    await page.click('[data-action=confirm-yes]');
+    await page.waitForSelector('.fund-card');
+    check((await text('.fund-card')).includes('RM 299'), 'and then loads the book');
   }
   await page.click('text=设置');
   await page.waitForSelector('[data-size=xlarge]');
+
+  // --- 公开账目: a visitor with an empty browser sees the published totals, and none of this phone's funds
+  {
+    const pub = await context.newPage();
+    await pub.goto(base + '#/public');
+    await pub.waitForSelector('[data-role=public-error]');
+    check((await pub.textContent('[data-role=public-error]')).includes('还没有公开的账目'), 'public page says when nothing is published yet');
+    publicAccounts = PUBLIC_FIXTURE;
+    await pub.reload();
+    await pub.waitForSelector('[data-role=public-fund]');
+    const shown = await pub.textContent('main');
+    check(shown.includes('公开测试项目') && shown.includes('RM 360') && shown.includes('RM 300') && shown.includes('RM 60') && shown.includes('Bao Guo Vihara') && shown.includes('12 个名字'), 'public page shows a fund with money in, handed over, on hand and to whom');
+    check(shown.includes('正在核对中'), "public page shows the family's notice");
+    check(!(await pub.locator('.sidebar').count()) && !shown.includes('RM 299'), "public page shows no sidebar and none of this browser's own funds");
+    await pub.click('summary');
+    check((await pub.textContent('details')).includes('28/2/2026'), 'public page lists the date of each hand-over');
+    await pub.setViewportSize({ width: 360, height: 740 });
+    check(!(await pub.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'public page has no sideways scroll on a phone');
+    await pub.screenshot({ path: path.join(shotDir, '11c-public.png'), fullPage: true });
+    await pub.close();
+  }
+
+  // --- the family signs in with Google: two devices, one book
+  if (sent) {
+    familyVersions.push(sent.body); // the family's book as seeded: 14 receipts, RM 299 on hand
+    const device = async () => {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'zh-CN' });
+      await ctx.clock.setFixedTime(new Date('2026-11-06T10:00:00'));
+      await ctx.addInitScript(pointAtTestServer, googleUrl);
+      ctx.on('request', (r) => { if (isOutside(r.url())) outside.push(r.url()); });
+      const pg = await ctx.newPage();
+      pg.on('pageerror', (e) => errors.push(e.message));
+      pg.on('console', (m) => { if (m.type() === 'error' && !/ERR_INTERNET_DISCONNECTED|403/.test(m.text())) errors.push(m.text()); });
+      return pg;
+    };
+    const onHand = (pg) => pg.locator('.fund-card').first().innerText();
+    const stored = (pg, key) => pg.evaluate((k) => localStorage.getItem(k), key);
+    const signIn = async (pg, email) => {
+      googleAccount = email;
+      await pg.click('[data-action=google-sign-in]');
+    };
+    /** Record money handed over, from the fund's month page. */
+    const handOver = async (pg, amount) => {
+      await pg.click('.fund-card');
+      await pg.click('text=＋ 记录交钱 / 支出');
+      await pg.fill('.sheet input[name=amount]', String(amount));
+      await pg.click('.sheet button[type=submit]');
+      await pg.waitForSelector('.sheet', { state: 'detached' });
+      await pg.click('text=返回');
+      await pg.waitForSelector('.fund-card');
+    };
+    /** What the app does when it comes back into view: look for the family's changes. */
+    const comeBack = (pg) => pg.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    const until = async (cond, what) => {
+      for (let i = 0; i < 150 && !(await cond()); i++) await new Promise((r) => setTimeout(r, 100));
+      check(await cond(), what);
+    };
+
+    const phone = await device();
+    await phone.goto(base);
+    await phone.waitForSelector('[data-role=family-sign-in]');
+
+    // A Google account that is not family signs in at Google fine, and gets nothing here.
+    await signIn(phone, 'stranger@example.com');
+    await phone.waitForSelector('#toast:has-text("不在家人名单")');
+    check(!(await phone.locator('.fund-card').count()) && !(await stored(phone, 'dana-ledger:session')), 'a Google account that is not on the family list gets no records and no session');
+    check(!phone.url().includes('id_token') && (await phone.locator('[data-page=public]').isVisible()), 'and is left on the public accounts, with the token gone from the address');
+
+    // Mum signs in on her phone: the family's book loads, with nothing to paste or tap.
+    await signIn(phone, 'mum@example.com');
+    await phone.waitForSelector('.fund-card');
+    check((await onHand(phone)).includes('RM 299'), 'a family member who signs in on an empty phone gets the family book: RM 299');
+    check(!phone.url().includes('id_token') && !(await phone.evaluate(() => JSON.stringify(history.state) + document.referrer)).includes('id_token'), "Google's token is not left in the address");
+    await phone.waitForSelector('[data-role=sync-line][data-sync=ok]');
+    await phone.screenshot({ path: path.join(shotDir, '11d-signed-in.png'), fullPage: true });
+    await phone.reload();
+    await phone.waitForSelector('.fund-card');
+    check(JSON.parse(await stored(phone, 'dana-ledger:session')).email === 'mum@example.com' && (await onHand(phone)).includes('RM 299'), 'she stays signed in after closing and opening the app');
+
+    // Her son signs in on his computer and sees the same book.
+    const laptop = await device();
+    await laptop.goto(base);
+    await laptop.waitForSelector('[data-role=family-sign-in]');
+    await signIn(laptop, 'son@example.com');
+    await laptop.waitForSelector('.fund-card');
+    check((await onHand(laptop)).includes('RM 299') && familyVersions.length === 1, 'a second device signs in and shows the same book; nothing was written by just looking');
+
+    // She hands over RM 9 on the phone. It reaches the server, then the laptop.
+    await handOver(phone, 9);
+    await until(() => familyVersions.length === 2, "a change on the phone becomes version 2 of the family's book");
+    await comeBack(laptop);
+    await until(async () => (await onHand(laptop)).includes('RM 290'), 'the laptop shows the change when it next looks: RM 290');
+    // And the other way.
+    await handOver(laptop, 5);
+    await until(() => familyVersions.length === 3, 'a change on the laptop becomes version 3');
+    await comeBack(phone);
+    await until(async () => (await onHand(phone)).includes('RM 285'), 'the phone shows it: RM 285');
+
+    // Both change things with no signal. When it comes back, both changes are in the book.
+    await phone.context().setOffline(true);
+    await laptop.context().setOffline(true);
+    await handOver(phone, 1);
+    await handOver(laptop, 2);
+    check((await onHand(phone)).includes('RM 284') && (await onHand(laptop)).includes('RM 283'), 'with no signal each device keeps working on its own records');
+    await phone.waitForSelector('[data-role=sync-line][data-sync=error], [data-role=sync-line][data-sync=pending]');
+    await phone.context().setOffline(false);
+    await laptop.context().setOffline(false);
+    await comeBack(phone);
+    await until(() => familyVersions.length === 4, "the phone's offline change goes up first");
+    await comeBack(laptop);
+    await until(() => familyVersions.length === 5, "the laptop combines it with its own and sends both: version 5");
+    await comeBack(phone);
+    await until(async () => (await onHand(phone)).includes('RM 282') && (await onHand(laptop)).includes('RM 282'), "both devices end with both changes: RM 282");
+    const newest = JSON.parse(familyVersions[familyVersions.length - 1]).data;
+    check(newest.payouts.length === JSON.parse(sent.body).data.payouts.length + 4 && newest.receipts.length === 14, "the family's book has all four hand-overs and still 14 receipts");
+
+    // The phone that already has records of its own (this test's first phone) is asked before they are set aside.
+    await page.goto('about:blank');
+    await page.goto(base);
+    await page.waitForSelector('[data-role=sign-in-card]');
+    await signIn(page, 'mum@example.com');
+    await page.waitForSelector('.confirm');
+    check((await text('.confirm')).includes('14 笔收款') && (await text('.confirm')).includes('收起来'), 'a device with its own records is asked before they are replaced by the family book');
+    await page.click('.confirm [data-action=confirm-no]');
+    await page.waitForSelector('#toast:has-text("保留自己的记录")');
+    check((await text('.fund-card')).includes('RM 299') && !(await stored(page, 'dana-ledger:session')) && familyVersions.length === 5, 'saying no keeps its records, signs it out, and sends nothing');
+
+    // Restoring an old backup on a signed-in device must not become the family's book: the
+    // device leaves the shared book, and nothing is sent.
+    const before = familyVersions.length;
+    await phone.goto(base + '#/restore');
+    await phone.waitForSelector('[data-action=restore]');
+    await phone.setInputFiles('#restore-file', path.join(shotDir, 'backup.json'));
+    await phone.waitForSelector('.confirm');
+    check((await phone.locator('.confirm').innerText()).includes('登出'), 'restoring on a signed-in device says it will leave the shared book');
+    await phone.click('.confirm [data-action=confirm-yes]');
+    await phone.waitForSelector('.fund-card');
+    await comeBack(phone);
+    await phone.waitForTimeout(2500);
+    check((await onHand(phone)).includes('RM 299') && !(await stored(phone, 'dana-ledger:session')) && !(await stored(phone, 'dana-ledger:sync')), 'the restored device is signed out and has forgotten its last sync');
+    check(familyVersions.length === before && JSON.parse(familyVersions[before - 1]).data.payouts.length === newest.payouts.length, "and the family's book is untouched by the restore");
+    // Signing in again asks before putting the family's book back.
+    await signIn(phone, 'mum@example.com');
+    await phone.waitForSelector('.confirm');
+    await phone.click('.confirm [data-action=confirm-yes]');
+    await until(async () => (await onHand(phone)).includes('RM 282'), 'signing in again asks, then brings back the family book: RM 282');
+    check(familyVersions.length === before, 'still nothing written');
+
+    // Signing out: the records stay on the device and stop following the family's.
+    await laptop.click('text=设置');
+    await laptop.click('[data-action=sign-out]');
+    await laptop.click('.confirm [data-action=confirm-yes]');
+    await laptop.waitForSelector('[data-role=account-card] [data-action=google-sign-in]');
+    await laptop.click('text=返回');
+    check((await onHand(laptop)).includes('RM 282') && !(await stored(laptop, 'dana-ledger:session')), 'after signing out the records are still on the device');
+    await phone.context().close();
+    await laptop.context().close();
+    // Back to where the first phone was, for the checks that follow.
+    await page.click('text=设置');
+    await page.waitForSelector('[data-size=xlarge]');
+  }
 
   // --- font size: xlarge month page
   await page.click('[data-size=xlarge]');
@@ -366,6 +652,7 @@ function check(cond, msg) {
   check(errors.length === 0, 'no console errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await browser.close();
   server.close();
+  fakeGoogle.close();
   console.log(failures ? `\n${failures} FAILED` : '\nALL PASSED');
   process.exit(failures ? 1 : 0);
 })().catch((e) => {
