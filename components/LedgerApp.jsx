@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   S, L, APP_VERSION, subscribe, getVersion, init, route, nav, goBack, mutate, money, openSheet,
-  closeConfirm, showToast, toastAction, serverStatus, backupWarning, canOfferInstall, doInstall,
+  closeConfirm, confirmBox, showToast, toastAction, serverStatus, backupWarning, canOfferInstall, doInstall,
   shareOrDownload, shareText, doRestore, loadBookFromText, setFontSize, setCurrency, fetchPublicAccounts,
   account, canSignIn, hasUnsynced, signInWithGoogle, signOut, syncNow,
 } from './store';
@@ -299,6 +299,31 @@ function quickPay(memberId, month) {
   });
 }
 
+/** The people a month's 全部打勾 would tick: still 未收, with a fixed monthly amount. */
+const tickAllDue = (s) => s.unpaid.filter((m) => m.pledge);
+
+/** Tick all of them at their monthly amount, received today, once she says yes. One 撤销 takes them all back. */
+async function tickAll(fundId, month) {
+  const s = L.monthSummary(S.state, fundId, month);
+  const due = tickAllDue(s);
+  const open = s.unpaid.length - due.length;
+  const total = due.reduce((t, m) => t + m.pledge, 0);
+  const yes = await confirmBox({
+    title: `${L.monthLabel(month)}全部打勾？`,
+    message: `还没收的 ${due.length} 人，各按每月金额，共 ${money(total)}，收到日期是今天。${open ? `金额不固定的 ${open} 人不包括在内，要自己记录。` : ''}`,
+    ok: `是，${due.length} 人打勾`,
+  });
+  if (!yes) return;
+  const today = L.todayISO();
+  // Someone may have been ticked on another device while she was deciding: they keep their record.
+  const added = mutate((st) => due.filter((m) => !L.receiptOf(st, m.id, month)).map((m) => L.setReceipt(st, { memberId: m.id, month, amount: m.pledge, date: today })));
+  const ids = new Set(added.map((r) => r.id));
+  showToast(`✓ ${added.length} 人 · ${money(added.reduce((t, r) => t + r.amount, 0))}`, {
+    actionLabel: '撤销',
+    action: () => mutate((st) => { st.receipts = st.receipts.filter((r) => !ids.has(r.id)); }),
+  });
+}
+
 function PersonRow({ m, month, no }) {
   const r = L.receiptOf(S.state, m.id, month);
   const openReceipt = () => openSheet('receipt', { memberId: m.id, month });
@@ -380,7 +405,12 @@ function MonthView({ fund, month }) {
         <div className="month-list">
         {total ? (
           <>
-            <p className="hint hint-top">收到钱后，点右边的方格打勾 ✓</p>
+            <div className="list-top">
+              <p className="hint">收到钱后，点右边的方格打勾 ✓</p>
+              {tickAllDue(s).length > 1 ? (
+                <button className="btn btn-ghost tick-all" data-action="tick-all" onClick={() => tickAll(fund.id, month)}>{`全部打勾（${tickAllDue(s).length} 人）`}</button>
+              ) : null}
+            </div>
             <ol className="people">{s.members.map((m) => <PersonRow key={m.id} m={m} month={month} no={numbers.get(m.id)} />)}</ol>
           </>
         ) : (

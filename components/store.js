@@ -531,7 +531,9 @@ export function openSheet(type, props = {}) {
     const root = document.getElementById('sheet');
     // If she is already in a field by now, leave her there.
     if (!root || root.contains(document.activeElement)) return;
-    const first = root.querySelector('[data-autofocus]') || root.querySelector('.sheet-x');
+    // A new record starts in its first box. Changing one starts on the sheet itself, where Enter
+    // saves and no phone keyboard pops up. A sheet with nothing to save starts on ✕.
+    const first = root.querySelector('[data-autofocus]') || root.querySelector('.sheet[tabindex]') || root.querySelector('.sheet-x');
     if (first) first.focus({ preventScroll: true });
   });
 }

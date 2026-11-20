@@ -15,14 +15,16 @@ The interface is Simplified Chinese with large text, and amounts are in RM (you 
 
 ## Current status
 
-Last checked on 19 Nov 2026.
+Last checked on 20 Nov 2026.
 
-https://mum.franklee.asia/ runs version 2.0.1, deployed from the `dev` branch on 19 Nov 2026. It is the 1.5.0 app rebuilt with Next.js and React, plus a desktop layout and without the demo. **It was checked in desktop Chrome at a phone's size, not yet on a real phone.**
+https://mum.franklee.asia/ runs version 2.5.0, deployed from the `dev` branch on 20 Nov 2026. 2.0.0 was the 1.5.0 app rebuilt with Next.js and React, plus a desktop layout and without the demo. **The 2.x versions were checked in desktop Chrome at a phone's size, not yet on a real phone.**
+
+2.5.0 adds 全部打勾 on the month page (everyone still 未收 with a fixed monthly amount, after she says yes; one 撤销 takes them all back), and Enter saves a sheet, including one opened to change a record.
 
 | Copy | Version | Backup |
 |---|---|---|
-| https://mum.franklee.asia/ | 2.0.1 | Automatic, to the family's backup server |
-| Branch `dev` | 2.0.1 | Automatic |
+| https://mum.franklee.asia/ | 2.5.0 | Automatic, to the family's backup server |
+| Branch `dev` | 2.5.0 | Automatic |
 | Branch `main` | 2.0.1 | Automatic |
 
 To go back to 1.5.0: `npx wrangler@4.158.0 rollback cff2a828-edf0-41cd-81eb-416fa8cb617a`. The tag `pi-server-as-installed` keeps 1.6.0 with the backup server's files exactly as they were installed on the Pi.

@@ -10,15 +10,26 @@ const field = (form, name) => form.elements.namedItem(name);
 const useOpened = (fn) => useState(fn)[0];
 
 function SheetShell({ title, sub = '', error = '', onSubmit, children }) {
+  const formRef = useRef(null);
+  // Enter saves, like 保存. A text box does that by itself. This adds the sheet itself, which has
+  // the focus when an existing record opens (so Enter is not taken by ✕, closing it unsaved), and
+  // the month lists. Enter in a 多行 box still starts a new line, and on a button still presses it.
+  const enterSaves = (e) => {
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.target !== e.currentTarget && e.target.tagName !== 'SELECT') return;
+    e.preventDefault();
+    onSubmit(formRef.current);
+  };
   return (
     <>
       <div className="sheet-backdrop" data-action="sheet-close" onClick={() => closeSheet()} />
-      <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabIndex={onSubmit ? -1 : undefined} onKeyDown={onSubmit ? enterSaves : undefined}>
         <div className="sheet-head">
           <div><h2 id="sheet-title">{title}</h2>{sub ? <p className="sheet-sub">{sub}</p> : null}</div>
           <button type="button" className="sheet-x" data-action="sheet-close" aria-label="关闭" onClick={() => closeSheet()}>✕</button>
         </div>
         <form
+          ref={formRef}
           className="sheet-form"
           noValidate
           onSubmit={(e) => {
