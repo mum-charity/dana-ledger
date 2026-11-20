@@ -108,6 +108,16 @@ function SyncLine() {
 const go = (to) => () => nav(to);
 const goReplace = (to) => () => nav(to, true);
 
+// A drawn chevron, not the ‹ › characters: each font puts those at a different height
+// (Microsoft YaHei draws them ~7px below the middle of the round button).
+function Chevron({ dir }) {
+  return (
+    <svg className="chevron" viewBox="0 0 24 24" aria-hidden="true">
+      <path d={dir === 'left' ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'} />
+    </svg>
+  );
+}
+
 function Topbar({ title, back = false, right = null }) {
   return (
     <header className="topbar">
@@ -379,9 +389,9 @@ function MonthView({ fund, month }) {
       <FundHeader fund={fund} tab="month" month={month} />
       <main className="page page-month">
         <div className="period-nav">
-          <button className="period-btn" onClick={goReplace(to(L.addMonths(month, -1)))} aria-label="上个月">‹</button>
+          <button className="period-btn" onClick={goReplace(to(L.addMonths(month, -1)))} aria-label="上个月"><Chevron dir="left" /></button>
           <h2 className="period-title">{L.monthLabel(month)}</h2>
-          <button className="period-btn" onClick={goReplace(to(L.addMonths(month, 1)))} aria-label="下个月">›</button>
+          <button className="period-btn" onClick={goReplace(to(L.addMonths(month, 1)))} aria-label="下个月"><Chevron dir="right" /></button>
         </div>
         {!isNow && <button className="link-btn" onClick={goReplace(to(L.currentMonth()))}>回到本月</button>}
 
@@ -548,9 +558,9 @@ function YearView({ fund, year }) {
       <FundHeader fund={fund} tab="year" month={`${year}-${now.slice(5)}`} />
       <main className="page page-wide">
         <div className="period-nav">
-          <button className="period-btn" onClick={goReplace(`#/f/${fund.id}/y/${year - 1}`)} aria-label="上一年">‹</button>
+          <button className="period-btn" onClick={goReplace(`#/f/${fund.id}/y/${year - 1}`)} aria-label="上一年"><Chevron dir="left" /></button>
           <h2 className="period-title">{`${year}年`}</h2>
-          <button className="period-btn" onClick={goReplace(`#/f/${fund.id}/y/${year + 1}`)} aria-label="下一年">›</button>
+          <button className="period-btn" onClick={goReplace(`#/f/${fund.id}/y/${year + 1}`)} aria-label="下一年"><Chevron dir="right" /></button>
         </div>
         <h2 className="print-title">{`${fund.name} · ${year}年`}</h2>
         <p className="hint no-print">表格可以左右滑动。点格子可以记录或修改。</p>
