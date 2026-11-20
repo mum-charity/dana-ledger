@@ -1,0 +1,74 @@
+# The iPhone app for 善款簿: a Swift app with one web view that opens https://mum.franklee.asia/.
+# DanaLedger.xcodeproj is made from this file. After changing it, run `xcodegen` in ios/.
+name: DanaLedger
+options:
+  bundleIdPrefix: asia.franklee
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+# Every build setting is written out here, so the project does not depend on xcodegen's presets.
+settings:
+  base:
+    SDKROOT: iphoneos
+    PRODUCT_NAME: $(TARGET_NAME)
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ALWAYS_SEARCH_USER_PATHS: NO
+    CLANG_ENABLE_MODULES: YES
+    ENABLE_STRICT_OBJC_MSGSEND: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SUPPORTS_MACCATALYST: NO
+    LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+      SWIFT_OPTIMIZATION_LEVEL: -Onone
+      GCC_OPTIMIZATION_LEVEL: "0"
+      ONLY_ACTIVE_ARCH: YES
+      ENABLE_TESTABILITY: YES
+      DEBUG_INFORMATION_FORMAT: dwarf
+    Release:
+      SWIFT_COMPILATION_MODE: wholemodule
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+      VALIDATE_PRODUCT: YES
+targets:
+  DanaLedger:
+    type: application
+    platform: iOS
+    sources:
+      - path: DanaLedger
+    settings:
+      base:
+        PRODUCT_NAME: DanaLedger
+        PRODUCT_BUNDLE_IDENTIFIER: asia.franklee.mum
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        INFOPLIST_FILE: DanaLedger/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+  DanaLedgerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: DanaLedgerUITests
+    dependencies:
+      - target: DanaLedger
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: asia.franklee.mum.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: DanaLedger
+schemes:
+  DanaLedger:
+    build:
+      targets:
+        DanaLedger: all
+        DanaLedgerUITests: [test]
+    test:
+      targets:
+        - DanaLedgerUITests

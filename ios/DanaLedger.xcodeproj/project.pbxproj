@@ -1,0 +1,326 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		430E1E349E87732DD113EDE2 /* LedgerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2297948852253278298F80B6 /* LedgerViewController.swift */; };
+		68D0312C8CA6F0DBF63F0679 /* DanaLedgerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C2EEAFBDE8C8C1E8040461 /* DanaLedgerUITests.swift */; };
+		7A3ABDCE217AAC3373326C70 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16F34E4E68F2DA6BD687341 /* SceneDelegate.swift */; };
+		82856AC9A75EF1F9A4FDB47C /* NativeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A7D1EE57D20152F2BB0AEE /* NativeBridge.swift */; };
+		C3EFF9612678C9A7D4BAA4DF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 476F6FCF32AF2CE41647FC39 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		18D0B2016A624AD3EE1B07FF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 992386E6ABAA92AE02FFC077 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3A7D041F865F9CBC15B0AE2D;
+			remoteInfo = DanaLedger;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		2297948852253278298F80B6 /* LedgerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerViewController.swift; sourceTree = "<group>"; };
+		22C2EEAFBDE8C8C1E8040461 /* DanaLedgerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DanaLedgerUITests.swift; sourceTree = "<group>"; };
+		476F6FCF32AF2CE41647FC39 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		63A7D1EE57D20152F2BB0AEE /* NativeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridge.swift; sourceTree = "<group>"; };
+		8DB580E5FFB2D0D9C0B66A97 /* DanaLedger.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = DanaLedger.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		918EC0C17BA45B0D3D869B37 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D16F34E4E68F2DA6BD687341 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		FA46F3BB23A7D68AC8BC8EBE /* DanaLedgerUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = DanaLedgerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		49FF8CBE72DF2FADB8D496C8 /* DanaLedger */ = {
+			isa = PBXGroup;
+			children = (
+				476F6FCF32AF2CE41647FC39 /* Assets.xcassets */,
+				918EC0C17BA45B0D3D869B37 /* Info.plist */,
+				2297948852253278298F80B6 /* LedgerViewController.swift */,
+				63A7D1EE57D20152F2BB0AEE /* NativeBridge.swift */,
+				D16F34E4E68F2DA6BD687341 /* SceneDelegate.swift */,
+			);
+			path = DanaLedger;
+			sourceTree = "<group>";
+		};
+		5B86D569C188A26247A0A998 /* DanaLedgerUITests */ = {
+			isa = PBXGroup;
+			children = (
+				22C2EEAFBDE8C8C1E8040461 /* DanaLedgerUITests.swift */,
+			);
+			path = DanaLedgerUITests;
+			sourceTree = "<group>";
+		};
+		B8D3159AFA6ECDB6440E271A = {
+			isa = PBXGroup;
+			children = (
+				49FF8CBE72DF2FADB8D496C8 /* DanaLedger */,
+				5B86D569C188A26247A0A998 /* DanaLedgerUITests */,
+				BF4BD9FE30A55857CA7847E6 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		BF4BD9FE30A55857CA7847E6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8DB580E5FFB2D0D9C0B66A97 /* DanaLedger.app */,
+				FA46F3BB23A7D68AC8BC8EBE /* DanaLedgerUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3A7D041F865F9CBC15B0AE2D /* DanaLedger */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AD5F4D72AF1F42CC6F600090 /* Build configuration list for PBXNativeTarget "DanaLedger" */;
+			buildPhases = (
+				9FE9C2541A51A8A0958EB1BF /* Sources */,
+				25E406EA1362F509683552BE /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DanaLedger;
+			packageProductDependencies = (
+			);
+			productName = DanaLedger;
+			productReference = 8DB580E5FFB2D0D9C0B66A97 /* DanaLedger.app */;
+			productType = "com.apple.product-type.application";
+		};
+		3E945E39E0C70896688D5CD6 /* DanaLedgerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F8A9E4F11782071054F74BDD /* Build configuration list for PBXNativeTarget "DanaLedgerUITests" */;
+			buildPhases = (
+				0C9D1169D6D74DBF8967EBFB /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E7B64A4B83B755CB2B44E322 /* PBXTargetDependency */,
+			);
+			name = DanaLedgerUITests;
+			packageProductDependencies = (
+			);
+			productName = DanaLedgerUITests;
+			productReference = FA46F3BB23A7D68AC8BC8EBE /* DanaLedgerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		992386E6ABAA92AE02FFC077 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					3A7D041F865F9CBC15B0AE2D = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					3E945E39E0C70896688D5CD6 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+						TestTargetID = 3A7D041F865F9CBC15B0AE2D;
+					};
+				};
+			};
+			buildConfigurationList = 52D2ABC404BD45A5E0060556 /* Build configuration list for PBXProject "DanaLedger" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = B8D3159AFA6ECDB6440E271A;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3A7D041F865F9CBC15B0AE2D /* DanaLedger */,
+				3E945E39E0C70896688D5CD6 /* DanaLedgerUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		25E406EA1362F509683552BE /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C3EFF9612678C9A7D4BAA4DF /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0C9D1169D6D74DBF8967EBFB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				68D0312C8CA6F0DBF63F0679 /* DanaLedgerUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9FE9C2541A51A8A0958EB1BF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				430E1E349E87732DD113EDE2 /* LedgerViewController.swift in Sources */,
+				82856AC9A75EF1F9A4FDB47C /* NativeBridge.swift in Sources */,
+				7A3ABDCE217AAC3373326C70 /* SceneDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E7B64A4B83B755CB2B44E322 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3A7D041F865F9CBC15B0AE2D /* DanaLedger */;
+			targetProxy = 18D0B2016A624AD3EE1B07FF /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		07BFB4D14768FE87DC3E2EFD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		3DE9916CB9C495A551DB3FE3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DanaLedger/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = asia.franklee.mum;
+				PRODUCT_NAME = DanaLedger;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		5CE0A02ABCFF607019C2A540 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = asia.franklee.mum.uitests;
+				TEST_TARGET_NAME = DanaLedger;
+			};
+			name = Release;
+		};
+		CE9AA92BF2A3CE367EE8F878 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DanaLedger/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = asia.franklee.mum;
+				PRODUCT_NAME = DanaLedger;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		CFC2CCE4DA275715B9BB7CBD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+				MARKETING_VERSION = 1.0.0;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		FE44DD50C4FB91706CBBC186 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = asia.franklee.mum.uitests;
+				TEST_TARGET_NAME = DanaLedger;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		52D2ABC404BD45A5E0060556 /* Build configuration list for PBXProject "DanaLedger" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CFC2CCE4DA275715B9BB7CBD /* Debug */,
+				07BFB4D14768FE87DC3E2EFD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AD5F4D72AF1F42CC6F600090 /* Build configuration list for PBXNativeTarget "DanaLedger" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CE9AA92BF2A3CE367EE8F878 /* Debug */,
+				3DE9916CB9C495A551DB3FE3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F8A9E4F11782071054F74BDD /* Build configuration list for PBXNativeTarget "DanaLedgerUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FE44DD50C4FB91706CBBC186 /* Debug */,
+				5CE0A02ABCFF607019C2A540 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 992386E6ABAA92AE02FFC077 /* Project object */;
+}
