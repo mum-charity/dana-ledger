@@ -168,7 +168,10 @@ const markPending = () => lsSet(KEY_PENDING, Math.random().toString(36).slice(2)
 function serverChanged() {
   if (backupOff) return;
   markPending();
-  scheduleUpload(3000);
+  // Signed in, every change already goes to the family's book, which keeps every version. This
+  // device's own backup then waits for a pause (or for the app to be put away), so the whole
+  // book is not sent twice after every tick.
+  scheduleUpload(account() ? 5 * 60 * 1000 : 3000);
 }
 function scheduleUpload(ms) {
   if (backupOff || !lsGet(KEY_PENDING)) return;
@@ -305,6 +308,26 @@ async function finishSignIn(credential, nonce) {
 let syncTimer = null;
 let syncing = false;
 let syncWanted = false;
+// Goes up whenever the records are replaced from outside the shared book. A sync that was in
+// flight then must not touch the records or the "last synced" note it would have written.
+let familyEpoch = 0;
+
+/** Stop following the family's book: sign out here and forget what was last synced. */
+function leaveFamily() {
+  familyEpoch++;
+  clearTimeout(syncTimer);
+  lsDel(KEY_SESSION);
+  lsDel(KEY_SYNC);
+  lsDel(KEY_SYNC_DIRTY);
+  S.sync = { busy: false };
+}
+
+/** fetch that gives up after a minute, so one request that never answers cannot stall syncing for good. */
+function fetchOrGiveUp(url, init) {
+  const ctl = new AbortController();
+  setTimeout(() => ctl.abort(), 60000); // covers reading the answer too; harmless once it is done
+  return fetch(url, { ...init, signal: ctl.signal });
+}
 
 /** Note a change to the records, and send it to the family's book soon. */
 function familyChanged() {
@@ -331,6 +354,10 @@ export async function syncNow() {
   S.sync = { ...S.sync, busy: true };
   emit();
   const dirty = lsGet(KEY_SYNC_DIRTY);
+  const epoch = familyEpoch;
+  const stillFamily = () => {
+    if (epoch !== familyEpoch) throw new Error('the records were replaced while syncing');
+  };
   let result;
   try {
     result = await syncOnce({
@@ -338,16 +365,28 @@ export async function syncNow() {
       session: () => { const a = account(); return a ? a.session : null; },
       local: () => S.state,
       apply: (state, replacing) => {
+        stillFamily();
         // Records of this device's own that are being set aside for the family's are kept, like before a restore.
         if (replacing) { try { localStorage.setItem(STORE_KEY + ':before-restore', JSON.stringify(S.state)); } catch (_) { /* ignore */ } }
+        const before = S.state;
         S.state = state;
         persist();
+        if (!S.storageOK) {
+          // The phone could not save them. Stop here, before the "last synced" note is written:
+          // with the note but without the records, the next sync would take every record the
+          // family added as deleted on this phone, and delete it for everyone.
+          S.state = before;
+          throw new Error('这部手机存不下记录');
+        }
         applyFontSize();
         serverChanged(); // this device's own backup follows, as always
         emit();
       },
       meta: () => lsJSON(KEY_SYNC),
-      setMeta: (m) => lsSet(KEY_SYNC, JSON.stringify(m)),
+      setMeta: (m) => {
+        stillFamily();
+        lsSet(KEY_SYNC, JSON.stringify(m));
+      },
       confirmReplace: (theirs) =>
         confirmBox({
           title: '改用家里共用的记录？',
@@ -362,7 +401,7 @@ export async function syncNow() {
           cancel: '不要，保留现在的',
           danger: true,
         }),
-      fetch: (url, init) => fetch(url, init),
+      fetch: fetchOrGiveUp,
     });
   } catch (e) {
     console.error('sync failed', e);
@@ -628,6 +667,7 @@ async function confirmAndRestore(parsed, what) {
         {`备份里有 ${n.funds.length} 个项目、${n.members.length} 人、${n.receipts.length} 笔收款。`}
         <br />
         手机里<strong>现在的记录会被取代</strong>。
+        {account() ? <><br />这部手机也会<strong>登出</strong>家里共用的记录。</> : null}
       </>
     ),
     ok: '是，恢复备份',
@@ -640,8 +680,16 @@ async function confirmAndRestore(parsed, what) {
   return true;
 }
 
-/** Make checked records this phone's records, and show the home screen. */
+/**
+ * Make checked records this phone's records, and show the home screen.
+ *
+ * These records come from a backup file or a setup code, not from the family's shared book, so
+ * the device leaves the shared book: it is signed out and forgets what it last synced. If it
+ * kept that note, the next sync would read every record the restored book lacks as "deleted
+ * here" and delete it from the family's book for everyone. Signing in again asks first.
+ */
 function adopt(state) {
+  leaveFamily();
   S.state = state;
   S.state.settings.lastBackupAt = Date.now();
   S.state.settings.changesSinceBackup = 0;

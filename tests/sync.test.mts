@@ -369,6 +369,33 @@ test('sync: a device with its own unrelated records is asked before they are set
   assert.equal(sameBook.asked, 0);
 });
 
+test('sync: if the device cannot save what it fetched, it does not note the sync as done', async () => {
+  const server = familyServer();
+  const { state, b } = smallBook();
+  const phone = device(server, state);
+  await phone.sync();
+  const laptop = device(server);
+  await laptop.sync();
+  L.setReceipt(phone.state, { memberId: b.id, month: '2026-05', amount: 2000, date: '2026-05-03' });
+  await phone.sync();
+
+  // The laptop's storage is full: saving the fetched records fails.
+  const noteBefore = JSON.stringify(laptop.meta);
+  const full: SyncDeps = {
+    server: 'https://backup.test', session: () => TOKEN, local: () => laptop.state,
+    apply: () => { throw new Error('storage is full'); },
+    meta: () => laptop.meta, setMeta: (m) => { laptop.meta = m; },
+    confirmReplace: async () => true, fetch: server.fetch,
+  };
+  await assert.rejects(syncOnce(full), /storage is full/);
+  assert.equal(JSON.stringify(laptop.meta), noteBefore, 'the note of the last sync is untouched');
+  assert.equal(server.versions.length, 2, 'and nothing was sent');
+  // With room again, the same sync simply works, and nothing the phone added is taken as deleted.
+  assert.deepEqual(await laptop.sync(), { ok: true, version: 2, pulled: true, pushed: false });
+  assert.equal(paid(laptop.state).length, 2);
+  assert.equal(paid(server.book()).length, 2);
+});
+
 test('sync: without a session nothing is fetched or sent', async () => {
   const server = familyServer();
   const { state } = smallBook();

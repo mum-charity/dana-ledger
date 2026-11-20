@@ -518,6 +518,27 @@ function check(cond, msg) {
     await page.waitForSelector('#toast:has-text("保留自己的记录")');
     check((await text('.fund-card')).includes('RM 299') && !(await stored(page, 'dana-ledger:session')) && familyVersions.length === 5, 'saying no keeps its records, signs it out, and sends nothing');
 
+    // Restoring an old backup on a signed-in device must not become the family's book: the
+    // device leaves the shared book, and nothing is sent.
+    const before = familyVersions.length;
+    await phone.goto(base + '#/restore');
+    await phone.waitForSelector('[data-action=restore]');
+    await phone.setInputFiles('#restore-file', path.join(shotDir, 'backup.json'));
+    await phone.waitForSelector('.confirm');
+    check((await phone.locator('.confirm').innerText()).includes('登出'), 'restoring on a signed-in device says it will leave the shared book');
+    await phone.click('.confirm [data-action=confirm-yes]');
+    await phone.waitForSelector('.fund-card');
+    await comeBack(phone);
+    await phone.waitForTimeout(2500);
+    check((await onHand(phone)).includes('RM 299') && !(await stored(phone, 'dana-ledger:session')) && !(await stored(phone, 'dana-ledger:sync')), 'the restored device is signed out and has forgotten its last sync');
+    check(familyVersions.length === before && JSON.parse(familyVersions[before - 1]).data.payouts.length === newest.payouts.length, "and the family's book is untouched by the restore");
+    // Signing in again asks before putting the family's book back.
+    await signIn(phone, 'mum@example.com');
+    await phone.waitForSelector('.confirm');
+    await phone.click('.confirm [data-action=confirm-yes]');
+    await until(async () => (await onHand(phone)).includes('RM 282'), 'signing in again asks, then brings back the family book: RM 282');
+    check(familyVersions.length === before, 'still nothing written');
+
     // Signing out: the records stay on the device and stop following the family's.
     await laptop.click('text=设置');
     await laptop.click('[data-action=sign-out]');
