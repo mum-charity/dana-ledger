@@ -120,6 +120,7 @@ npm run deploy               # builds the app into out/, then uploads it
 | `tests/model.test.js` | Unit tests for balances, prepayments, import and CSV |
 | `tests/e2e.js` | End-to-end test on a phone-sized screen, plus the desktop layout |
 | `tests/upgrade.js` | Moving a phone from 1.6.0 to this build |
+| `capacitor.config.json`, `ios/`, `ios-www/` | The iPhone app project. See [iPhone app project](#iphone-app-project-not-built-yet) |
 | `next.config.js`, `wrangler.jsonc` | Build settings (static export) and Cloudflare deploy settings |
 
 ## Putting mum's book on a new phone
@@ -181,6 +182,34 @@ It does not update by itself. To publish or update it, list the funds to show an
 node scripts/publish-public.mts private/book.json private/public-funds.json          # prints exactly what the public will see; sends nothing
 BACKUP_TOKEN=<the family key> node scripts/publish-public.mts private/book.json private/public-funds.json --send
 ```
+
+## iPhone app project (not built yet)
+
+`ios/` is an Xcode project made with Capacitor 8.6.2. It has **never been built or run**: it was created on Windows, which cannot build iOS apps. It is a window that opens https://mum.franklee.asia/ (`capacitor.config.json`, `server.url`); none of the app's files are copied into it, so a normal deploy updates the iPhone app too. It uses Swift Package Manager, so there is no `pod install`.
+
+- Bundle ID `asia.franklee.mum`, name 「善款簿」, version 2.4.0 (set by hand in Xcode: Target App, General), build 1, iOS 15 and up, iPhone and iPad.
+- `ios-www/` is the only web content inside the app: a blank page and `offline.html`, shown when the site cannot be reached. Everything under `ios/App/App/public`, `ios/App/App/capacitor.config.json` and `ios/App/App/config.xml` is made by `npx cap sync` and is not committed.
+- `WKAppBoundDomains` in `ios/App/App/Info.plist` lists `mum.franklee.asia` and `localhost`, and `limitsNavigationsToAppBoundDomains` is on. iOS only lets a web view run a service worker (the offline cache) for listed domains.
+- The app icon is `public/icons/icon-maskable-512.png` enlarged to 1024×1024 with no transparency. Enlarged, not redrawn: it is soft. Replace `ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png` with a real 1024×1024 PNG without an alpha channel before the App Store.
+- The launch screen is a plain `#F7F3EC` page (`LaunchScreen.storyboard`). It does not follow dark mode.
+
+**On a Mac** (Xcode 26 or newer, Node 22 or newer; no CocoaPods needed):
+
+```sh
+npm ci
+npx cap sync ios      # rewrites the generated files; run again after changing capacitor.config.json
+npx cap open ios      # opens ios/App/App.xcodeproj in Xcode
+```
+
+In Xcode: wait for it to fetch the Capacitor package, pick Target App, Signing & Capabilities, tick Automatically manage signing and choose your Team (a paid Apple Developer account is needed for TestFlight and the App Store; a free one runs it on your own iPhone for 7 days). If `asia.franklee.mum` is already taken, change the bundle ID there and in `capacitor.config.json` (`appId`). Then choose an iPhone or simulator and press Run. To publish: Product, Archive, then Distribute App.
+
+What does not work yet:
+
+- **Family sign-in with Google.** Google refuses sign-in inside an app's web view, and `limitsNavigationsToAppBoundDomains` also stops the web view leaving the listed domains. Fixing it needs sign-in in a system browser sheet (for example ASWebAuthenticationSession) and a way back into the app, which means changes to the app's sign-in and to what the Google client allows.
+- **Her records.** The app's web view has its own storage, apart from Safari and from the home-screen app, so it starts empty. Load the book with a setup link (paste it under 恢复记录) or a backup file. It backs up as another separate book.
+- **Offline use** depends on the service worker, which only works with the app-bound domains above and is not tried. The first open needs signal.
+- **App Store review.** An app that is only a web view can be refused under guideline 4.2 (minimum functionality), and Capacitor documents `server.url` as meant for development. The home-screen web app is the supported way to install it today.
+- **Not bundling `out/`:** from `capacitor://localhost` the app would treat itself as a developer's `localhost` and send no backups, and the backup server only allows `https://mum.franklee.asia` as an origin.
 
 ## First-time setup for mum
 

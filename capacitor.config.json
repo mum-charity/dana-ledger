@@ -1,0 +1,14 @@
+{
+  "appId": "asia.franklee.mum",
+  "appName": "善款簿",
+  "webDir": "ios-www",
+  "backgroundColor": "#F7F3EC",
+  "server": {
+    "url": "https://mum.franklee.asia",
+    "errorPath": "offline.html"
+  },
+  "ios": {
+    "limitsNavigationsToAppBoundDomains": true,
+    "contentInset": "never"
+  }
+}
