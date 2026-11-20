@@ -121,6 +121,7 @@ npm run deploy               # builds the app into out/, then uploads it
 | `tests/e2e.js` | End-to-end test on a phone-sized screen, plus the desktop layout |
 | `tests/upgrade.js` | Moving a phone from 1.6.0 to this build |
 | `next.config.js`, `wrangler.jsonc` | Build settings (static export) and Cloudflare deploy settings |
+| `ios/` | The iPhone app, in Swift. See [iPhone app](#iphone-app) |
 
 ## Putting mum's book on a new phone
 
@@ -181,6 +182,37 @@ It does not update by itself. To publish or update it, list the funds to show an
 node scripts/publish-public.mts private/book.json private/public-funds.json          # prints exactly what the public will see; sends nothing
 BACKUP_TOKEN=<the family key> node scripts/publish-public.mts private/book.json private/public-funds.json --send
 ```
+
+## iPhone app
+
+`ios/` is an iPhone app written in Swift, with no packages (no Capacitor, CocoaPods or npm). It is one web view that opens https://mum.franklee.asia/. Nothing from `out/` is copied into it, so every `npm run deploy` updates the iPhone app too, and the money rules stay in one place (`lib/model.js`).
+
+What the app does that a plain web view would not:
+
+- **Opens without signal** after the first time. iOS runs the site's offline cache (service worker) inside an app only for the domains in `WKAppBoundDomains` in `ios/DanaLedger/Info.plist`. If it has never been opened with signal, it shows 「现在打不开」 with a 重试 button instead of a blank screen.
+- **Share sheet:** 导出 Excel 表格 and the WhatsApp summary open the iPhone share sheet, and the file keeps its name (`ios/DanaLedger/NativeBridge.swift`).
+- **Printing:** 打印 / 存成 PDF opens the iPhone print sheet. A PDF can be saved from there.
+- **No install button:** the page counts as installed, so it does not offer 添加到手机主屏幕.
+- **Links to other sites** open in Safari.
+
+Details: bundle ID `asia.franklee.mum`, name 「善款簿」, iOS 15 and up, iPhone and iPad. The app has its own version (1.0.0 in `ios/project.yml`), which changes only when the Swift code does; 设置 still shows the web app's version.
+
+**To run it on an iPhone:** this opens the real site, so anything typed into it is sent to the real backup server and kept there for good, as on any new phone. Look, but use `bash ios/test.sh` (below) to try things out. Open `ios/DanaLedger.xcodeproj` in Xcode (26 or newer). Under Target DanaLedger → Signing & Capabilities, choose your Team. Plug in the iPhone, pick it at the top, and press Run. The first time, the iPhone asks you to trust the developer: Settings → General → VPN & Device Management.
+
+**To change the project:** edit `ios/project.yml`, then run `xcodegen` in `ios/` to remake `DanaLedger.xcodeproj` (`brew install xcodegen`).
+
+**To test it:** `bash ios/test.sh` builds the web app, serves it from the Mac at `http://localhost:41871`, and runs the UI tests in the iPhone simulator (`ios/DanaLedgerUITests/`). It runs them once with the server up and once with it stopped. At localhost nothing is sent to the backup server. Only test builds can be pointed at another address (`-startURL`); the build installed on a phone always opens https://mum.franklee.asia/. One more check, `LiveChecks`, opens the real site from an empty book and only reads (the public accounts, and the sign-in message); it runs only with `TEST_RUNNER_DANA_LIVE_CHECKS=1`.
+
+**Tested on 20 Nov 2026 in the iPhone 17 and iPad (A16) simulators (iOS 26), not yet on a real iPhone or iPad.** Passed: opens as an installed app, 导出 Excel 表格 opens the share sheet with the named CSV file, 打印 / 存成 PDF opens the print sheet in A4 landscape, reopens with the records after the server is stopped, shows 重试 when it has never been opened, and on the real site loads the public accounts from the backup server and explains that Google sign-in is not available.
+
+What does not work yet:
+
+- **The family's shared book.** This is the main thing missing. Google refuses to sign anyone in inside an app's web view, so the app cannot join the shared book; it shows 「这里还不能用 Google 登入」 and points to Safari or the home-screen web app instead. Making it work needs a system sign-in sheet in the app, plus a change to the web app or the server to pass Google's answer back, and a deploy.
+- **Records do not carry over.** The app keeps its own records, apart from Safari and from the home-screen web app, so it starts empty. A setup link (tap the version line in 设置 five times and paste it) or a backup file loads a book, but **as a separate copy that never follows the family's shared book**: changes made in it do not reach the family's book. It backs up by itself as its own book.
+- **Whether iOS can clear the app's records** after a time unused is not settled. The records live in the web view's storage. WebKit documents that home-screen web apps are exempt from its 7-day removal of website data ([Tracking Prevention in WebKit](https://webkit.org/tracking-prevention/)), but says nothing official about an app's web view. Settle this before the app becomes anyone's main copy.
+- **A free Apple account** (a "Personal Team" in Xcode) only lets the app run for 7 days on a phone, which must be plugged into the Mac to install it again. TestFlight or the App Store needs the paid Apple Developer Program (US$99 a year).
+- **App Store review** may refuse an app that only shows a website (guideline 4.2). TestFlight for the family is the realistic way to install it on other phones.
+- **The icon** is the 512 px web icon enlarged to 1024 px, so it is slightly soft.
 
 ## First-time setup for mum
 
