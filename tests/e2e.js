@@ -128,6 +128,16 @@ function check(cond, msg) {
   page.on('console', (m) => { if (m.type() === 'error' && !(offline && m.text().includes('ERR_INTERNET_DISCONNECTED')) && !wrongCode404(m)) errors.push(m.text()); });
   const shot = (name) => page.screenshot({ path: path.join(shotDir, name + '.png'), fullPage: true, animations: 'disabled' });
   const text = (sel) => page.locator(sel).first().innerText();
+  // The ‹ › beside the month or year: two round buttons, each with its arrow in the exact middle.
+  const arrowsCentred = () => page.evaluate(() => {
+    const btns = [...document.querySelectorAll('.period-btn')];
+    return btns.length === 2 && btns.every((b) => {
+      const r = b.getBoundingClientRect();
+      const s = b.querySelector('svg')?.getBoundingClientRect();
+      return !!s && s.width > 0 && Math.abs(r.width - r.height) < 1
+        && Math.abs(s.x + s.width / 2 - (r.x + r.width / 2)) < 1 && Math.abs(s.y + s.height / 2 - (r.y + r.height / 2)) < 1;
+    });
+  });
 
   // A visitor with no records, not signed in, gets the public accounts and the family's sign-in.
   await page.goto(base);
@@ -252,6 +262,7 @@ function check(cond, msg) {
   await page.click('.period-btn[aria-label=上个月]');
   for (let i = 0; i < 9; i++) await page.click('.period-btn[aria-label=上个月]');
   check((await text('.period-title')) === '2026年1月', 'navigated to Jan 2026');
+  check(await arrowsCentred(), 'the month arrows sit in the middle of their round buttons');
   await page.locator('.person', { hasText: '林志明' }).locator('.person-main').click();
   await page.waitForSelector('.sheet .stepper');
   for (let i = 0; i < 11; i++) await page.click('.sheet .step[data-d="1"]');
@@ -681,9 +692,11 @@ function check(cond, msg) {
   await page.keyboard.press('Escape');
   await page.waitForSelector('.sheet', { state: 'detached' });
   await shot('31-desktop-month');
+  check(await arrowsCentred(), 'desktop: the month arrows sit in the middle of their round buttons');
   await page.click('.tab:has-text("全年表")');
   await page.waitForSelector('.grid');
   await shot('32-desktop-year');
+  check(await arrowsCentred(), 'desktop: the year arrows sit in the middle of their round buttons');
   check(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'desktop: no horizontal page scroll');
   await page.setViewportSize({ width: 390, height: 844 });
 
