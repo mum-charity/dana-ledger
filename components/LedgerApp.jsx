@@ -5,6 +5,7 @@ import {
   S, L, APP_VERSION, subscribe, getVersion, init, route, nav, goBack, mutate, money, openSheet,
   closeConfirm, showToast, toastAction, serverStatus, backupWarning, canOfferInstall, doInstall,
   shareOrDownload, shareText, doRestore, loadBookFromText, setFontSize, setCurrency, fetchPublicAccounts,
+  account, canSignIn, hasUnsynced, signInWithGoogle, signOut, syncNow,
 } from './store';
 import { SHEETS } from './sheets';
 
@@ -26,7 +27,7 @@ export default function LedgerApp() {
     else if (r.name === 'offerings') view = <OfferingsView />;
     else if (r.name === 'settings') view = <SettingsView />;
     else if (r.name === 'restore') view = <RestoreView />;
-    else if (r.name === 'public') view = <PublicView />;
+    else if (r.name === 'public') view = <PublicView landing={!!r.landing} />;
     else view = <HomeView />;
   }
   const Sheet = S.sheet && SHEETS[S.sheet.type];
@@ -84,6 +85,26 @@ function ConfirmBox({ title, message, ok, cancel, danger }) {
 }
 
 // ================================================================ shared pieces
+/** The Google sign-in button, for the family. */
+function GoogleButton({ label = '用 Google 帐号登入' }) {
+  return <button className="btn btn-primary btn-block" data-action="google-sign-in" onClick={signInWithGoogle}>{label}</button>;
+}
+
+/** One line saying whether this device's records are the same as the family's right now. */
+function SyncLine() {
+  const a = account();
+  if (!a) return null;
+  const y = S.sync;
+  const time = (t) => new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  let text;
+  if (y.busy) text = '正在和家里的记录同步…';
+  else if (y.ok === false) text = `⚠ 还没同步（${y.error}）。有网络时会自动再试。`;
+  else if (hasUnsynced()) text = '有更改还没传到家里的记录，马上会自动传。';
+  else if (y.ok) text = `已和家里的记录同步 · ${time(y.at)}`;
+  else text = '已登入，和家里的记录同步。';
+  return <p className="hint sync-line" data-role="sync-line" data-sync={y.busy ? 'busy' : y.ok === false ? 'error' : hasUnsynced() ? 'pending' : 'ok'}>{text}</p>;
+}
+
 const go = (to) => () => nav(to);
 const goReplace = (to) => () => nav(to, true);
 
@@ -160,7 +181,27 @@ function HomeView() {
           </div>
         )}
         {canOfferInstall() && <button className="btn btn-secondary btn-block" data-action="install" onClick={doInstall}>添加到手机主屏幕</button>}
-        {!state.funds.length ? (
+        <SyncLine />
+        {state.funds.length && !account() && canSignIn() ? (
+          <section className="card" data-role="sign-in-card">
+            <p>用 Google 帐号登入，这部手机就和家人的手机、电脑用同一本记录。</p>
+            <GoogleButton />
+          </section>
+        ) : null}
+        {!state.funds.length && (account() || S.signingIn) ? (
+          <section className="card empty" data-role="family-loading">
+            <div className="empty-mark" aria-hidden="true">善</div>
+            {S.sync.ok === false ? (
+              <>
+                <h2>还没能载入家里的记录</h2>
+                <p>{`${S.sync.error}。`}</p>
+                <button className="btn btn-primary btn-block" data-action="sync-now" onClick={() => syncNow()}>再试一次</button>
+              </>
+            ) : (
+              <h2>正在载入家里的记录…</h2>
+            )}
+          </section>
+        ) : !state.funds.length ? (
           <section className="card empty">
             <div className="empty-mark" aria-hidden="true">善</div>
             <h2>欢迎使用善款簿</h2>
@@ -585,6 +626,27 @@ function SettingsView() {
             <button className="btn btn-secondary" type="submit">保存</button>
           </form>
         </section>
+        <section className="card" data-role="account-card">
+          <h3 className="card-title">家人登入</h3>
+          {account() ? (
+            <>
+              <p>{`已登入：${account().email}`}</p>
+              <SyncLine />
+              <div className="btn-row">
+                <button className="btn btn-secondary" data-action="sync-now" onClick={() => syncNow()}>现在同步</button>
+                <button className="btn btn-ghost" data-action="sign-out" onClick={signOut}>登出</button>
+              </div>
+            </>
+          ) : canSignIn() ? (
+            <>
+              <p className="muted">登入后，这部手机和家人的手机、电脑用同一本记录。</p>
+              <GoogleButton />
+            </>
+          ) : (
+            <p className="muted">在这个地址不能登入。</p>
+          )}
+          <button className="link-btn" data-action="open-public" onClick={go('#/public')}>看公开账目</button>
+        </section>
         <p className="about" data-action="about-tap" onClick={aboutTap}>{`善款簿 ${APP_VERSION} · 不需要上网也能用`}</p>
       </main>
     </>
@@ -596,7 +658,7 @@ function SettingsView() {
  * published it on the backup server. No names: the server sends only totals. This page never
  * reads or changes the records on this phone.
  */
-function PublicView() {
+function PublicView({ landing = false }) {
   const [state, setState] = useState({ loading: true, data: null, error: null });
   useEffect(() => {
     let live = true;
@@ -613,8 +675,14 @@ function PublicView() {
 
   return (
     <>
-      <Topbar title="公开账目" />
+      <Topbar title="公开账目" back={!landing} />
       <main className="page" data-page="public">
+        {landing && canSignIn() ? (
+          <section className="card" data-role="family-sign-in">
+            <p><strong>家人请登入</strong>，就能看到和修改完整的记录。</p>
+            <GoogleButton />
+          </section>
+        ) : null}
         <section className="card">
           <p>{'这里公开每个项目的钱：收到多少、交出多少、手上还有多少。'}<br />{'不显示捐款人的名字，也不显示各人给了多少。'}</p>
           {data ? <p className="hint">{`${data.year} 年 · 更新于 ${when(data.updatedAt)}`}</p> : null}
@@ -624,7 +692,7 @@ function PublicView() {
         {error ? <div className="empty" data-role="public-error"><p>{error}</p></div> : null}
         {data
           ? data.funds.map((f) => (
-              <section className="card fund-card" key={f.name} data-role="public-fund">
+              <section className="card pub-card" key={f.name} data-role="public-fund">
                 <h2 className="fund-name">{f.name}</h2>
                 {f.recipient ? <span className="fund-row"><span>交给</span><b>{f.recipient}</b></span> : null}
                 <span className="fund-row"><span>名单上</span><b>{`${f.people} 个名字`}</b></span>
@@ -663,6 +731,7 @@ function PublicView() {
               </section>
             ))
           : null}
+        {landing ? <button className="link-btn" data-action="start-new" onClick={go('#/new')}>不登入，在这部手机另开一本簿子</button> : null}
       </main>
     </>
   );

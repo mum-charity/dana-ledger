@@ -93,6 +93,13 @@ declare const Ledger: {
   prepay(s: Ledger.State, payment: { memberId: string; fromMonth: string; count: number; amountEach: number; date: string; note?: string }): Ledger.Receipt[];
   addPayout(s: Ledger.State, payout: { fundId: string; month: string; date: string; amount: number; note?: string }): Ledger.Payout;
   addOffering(s: Ledger.State, offering: { date: string; recipient: string; lines: Ledger.OfferingLine[]; dedication?: string; note?: string }): Ledger.Offering;
+  updateFund(s: Ledger.State, id: string, patch: { name?: string; opening?: number; note?: string }): Ledger.Fund;
+  deleteFund(s: Ledger.State, id: string): void;
+  updateMember(s: Ledger.State, id: string, patch: { name?: string; pledge?: number; startMonth?: string; endMonth?: string | null; note?: string }): Ledger.Member;
+  deleteMember(s: Ledger.State, id: string): void;
+  removeReceipt(s: Ledger.State, memberId: string, month: string): Ledger.Receipt | null;
+  removePayout(s: Ledger.State, id: string): Ledger.Payout | null;
+  addMonths(month: string, n: number): string;
 
   parseAmount(input: unknown): number | null;
   /** 1234500 -> 'RM 12,345' */

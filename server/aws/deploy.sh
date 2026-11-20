@@ -12,6 +12,10 @@
 #   DOMAIN_NAME, CERTIFICATE_ARN   the address the app calls and its ACM certificate (see README)
 #   ALERT_EMAIL     gets an email when the month's AWS bill passes US$5
 #   ALLOWED_ORIGINS default https://mum.franklee.asia
+#   GOOGLE_CLIENT_ID, FAMILY_EMAILS   Google sign-in for the family's shared book: the client ID,
+#                   and the Google accounts allowed in, comma-separated. Keep the emails out of
+#                   the repo; give them here. Left out, the stack keeps what it had.
+#   QUOTA_BYTES     all phones' backups together (the template's default is 1 GB)
 #   KEY_FILE        on the first run, save the key for reading backups in this file (readable only
 #                   by you) instead of showing it on screen
 set -euo pipefail
@@ -51,6 +55,9 @@ fi
 [ -n "${CERTIFICATE_ARN:-}" ] && params+=("CertificateArn=$CERTIFICATE_ARN")
 [ -n "${ALERT_EMAIL:-}" ] && params+=("AlertEmail=$ALERT_EMAIL")
 [ -n "${ALLOWED_ORIGINS:-}" ] && params+=("AllowedOrigins=$ALLOWED_ORIGINS")
+[ -n "${GOOGLE_CLIENT_ID:-}" ] && params+=("GoogleClientId=$GOOGLE_CLIENT_ID")
+[ -n "${FAMILY_EMAILS:-}" ] && params+=("FamilyEmails=$FAMILY_EMAILS")
+[ -n "${QUOTA_BYTES:-}" ] && params+=("QuotaBytes=$QUOTA_BYTES")
 aws cloudformation deploy --stack-name "$STACK" --template-file "$HERE/template.yaml" \
   --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset \
   ${params[@]+--parameter-overrides "${params[@]}"}
@@ -64,7 +71,7 @@ say "2/3 The code"
 # built and asks it /health, so code that cannot start stops here, before anything is uploaded.
 (cd "$ROOT" && npm run --silent build:server)
 ZIP="$(mktemp -d)/backup.zip"
-(cd "$ROOT/server/dist" && zip -q -X "$ZIP" lib/model.js lib/package.json server/package.json server/backup-core.js server/public-summary.js server/aws/lambda.js server/aws/store-s3.js)
+(cd "$ROOT/server/dist" && zip -q -X "$ZIP" lib/model.js lib/package.json server/package.json server/backup-core.js server/public-summary.js server/auth.js server/aws/lambda.js server/aws/store-s3.js)
 aws lambda update-function-code --function-name "$FN" --zip-file "fileb://$ZIP" --query LastUpdateStatus --output text
 aws lambda wait function-updated --function-name "$FN"
 rm -f "$ZIP"

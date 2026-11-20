@@ -43,7 +43,7 @@ install -d -m 755 "$APP" "$APP/lib" "$APP/server"
 install -m 644 "$BUILT/lib/model.js" "$APP/lib/model.js"
 install -m 644 "$BUILT/lib/package.json" "$APP/lib/package.json"
 rm -f "$APP/model.js" # where 1.x kept it
-for f in package.json backup-server.js backup-core.js public-summary.js store-disk.js; do
+for f in package.json backup-server.js backup-core.js public-summary.js auth.js store-disk.js; do
   install -m 644 "$BUILT/server/$f" "$APP/server/$f"
 done
 if grep -Eq '^BACKUP_TOKEN=.{32,}$' "$ENV_FILE" 2>/dev/null; then

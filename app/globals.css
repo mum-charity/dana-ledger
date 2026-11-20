@@ -446,6 +446,8 @@ b, strong { font-weight: 700; }
 /* ------------------------------------------------------------ public accounts */
 .grid td.pub-cell { padding: 6px 10px; text-align: right; }
 .pub-neg { color: var(--danger); }
+.pub-card { gap: 8px; }
+.sync-line { margin: 0; }
 [data-page="public"] details { margin-top: 6px; }
 [data-page="public"] summary { cursor: pointer; color: var(--primary); font-weight: 600; padding: 6px 0; }
 .year-totals { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 0; }

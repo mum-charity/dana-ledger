@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import L from '../lib/model.js';
 import { createBackupService, type BackupResponse, type BackupService, type BackupServiceOptions } from '../server/backup-core.ts';
@@ -14,6 +15,7 @@ import { createDiskStore } from '../server/store-disk.ts';
 import { createS3Store, type S3Commands } from '../server/aws/store-s3.ts';
 import { createHandler, type ApiEvent } from '../server/aws/lambda.ts';
 import { createBackupServer } from '../server/backup-server.ts';
+import type { GoogleKey } from '../server/auth.ts';
 
 const TOKEN = 'k'.repeat(40);
 const ORIGIN = 'https://mum.franklee.asia';
@@ -37,7 +39,7 @@ function makeBook(receipts: number): string {
 
 /** Enough of S3 for store-s3.ts: objects in memory, and the same errors S3 gives. */
 function fakeS3() {
-  interface Command { kind: string; input: { Key: string; Body: string; Prefix: string; IfNoneMatch?: string; ContinuationToken?: string } }
+  interface Command { kind: string; input: { Key: string; Body: string; Prefix: string; IfNoneMatch?: string; ContinuationToken?: string; StartAfter?: string } }
   const objects = new Map<string, { body: string; lastModified: Date }>();
   const calls: string[] = [];
   const named = (kind: string) => class { kind = kind; input: unknown; constructor(input: unknown) { this.input = input; } };
@@ -60,7 +62,7 @@ function fakeS3() {
       }
       if (c.kind === 'list') {
         // Two objects a page, to exercise paging.
-        const keys = [...objects.keys()].filter((k) => k.startsWith(c.input.Prefix)).sort();
+        const keys = [...objects.keys()].filter((k) => k.startsWith(c.input.Prefix) && (!c.input.StartAfter || k > c.input.StartAfter)).sort();
         const start = c.input.ContinuationToken ? Number(c.input.ContinuationToken) : 0;
         const page = keys.slice(start, start + 2);
         const more = start + 2 < keys.length;
@@ -191,7 +193,7 @@ for (const [kind, make] of Object.entries(STORES)) {
     const pre = await call(svc, 'OPTIONS', `/backup/${DEVICE}`, { headers: { origin: ORIGIN } });
     assert.equal(pre.status, 204);
     assert.equal(pre.headers['Access-Control-Allow-Origin'], ORIGIN);
-    assert.equal(pre.headers['Access-Control-Allow-Methods'], 'GET, PUT');
+    assert.equal(pre.headers['Access-Control-Allow-Methods'], 'GET, PUT, POST');
     assert.match(pre.headers['Access-Control-Allow-Headers'], /Content-Type/);
     const bad = await call(svc, 'PUT', `/backup/${OTHER}`, { body: book(), headers: { origin: 'https://example.com' } });
     assert.equal(bad.status, 403);
@@ -305,6 +307,166 @@ for (const [kind, make] of Object.entries(STORES)) {
     st.cleanup();
   });
 }
+
+// ---------------------------------------------------------------- Google sign-in and the family's book
+// A stand-in for Google: its own signing key, and ID tokens signed with it.
+const CLIENT_ID = 'test-client.apps.googleusercontent.com';
+const NONCE = 'n'.repeat(24);
+const MUM = 'mum@example.com';
+const STRANGER = 'stranger@example.com';
+const google = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const someoneElse = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const googleJwk = google.publicKey.export({ format: 'jwk' });
+const GOOGLE_KEYS: GoogleKey[] = [{ kid: 'key-1', kty: 'RSA', n: googleJwk.n!, e: googleJwk.e!, alg: 'RS256' }];
+const T0 = Date.parse('2026-11-20T04:00:00Z');
+const part = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+/** An ID token as Google would make it for MUM; `change` alters the claims, the header or who signs. */
+function idToken({ claims = {}, header = {}, signer = google.privateKey }: { claims?: Record<string, unknown>; header?: Record<string, unknown>; signer?: crypto.KeyObject } = {}): string {
+  const body = `${part({ alg: 'RS256', kid: 'key-1', typ: 'JWT', ...header })}.${part({ iss: 'https://accounts.google.com', aud: CLIENT_ID, email: MUM, email_verified: true, nonce: NONCE, iat: T0 / 1000 - 10, exp: T0 / 1000 + 3600, ...claims })}`;
+  return `${body}.${crypto.sign('RSA-SHA256', Buffer.from(body), signer).toString('base64url')}`;
+}
+
+for (const [kind, make] of Object.entries(STORES)) {
+  const familySetup = (more: Partial<BackupServiceOptions> = {}) => {
+    const st = make();
+    let t = T0;
+    const options = { token: TOKEN, store: st.open(), log: quiet, now: () => t, googleClientId: CLIENT_ID, familyEmails: [' Mum@Example.com '], googleKeySource: async () => GOOGLE_KEYS, ...more };
+    const svc = createBackupService(options);
+    const call = (method: string, url: string, body?: unknown, headers: Record<string, string> = {}) =>
+      svc.handle({ method, url, headers, readBody: async () => (body === undefined ? '' : typeof body === 'string' ? body : JSON.stringify(body)) });
+    const signIn = async (credential = idToken()) => call('POST', '/session', { credential, nonce: NONCE });
+    return { st, svc, call, signIn, options, later: (ms: number) => { t += ms; } };
+  };
+
+  test(`${kind}: a family member signs in with Google and gets a session; nobody else does`, async () => {
+    const { st, call, signIn, later } = familySetup();
+    const ok = await signIn();
+    assert.equal(ok.status, 200);
+    const { session, email, expiresAt } = JSON.parse(ok.body);
+    assert.equal(email, MUM);
+    assert.ok(expiresAt > T0 + 150 * 86400000, 'she is not asked to sign in again for months');
+
+    // Every way a token can be wrong is refused, and none of them gets a session.
+    const refused = async (credential: string, nonce = NONCE) => {
+      const res = await call('POST', '/session', { credential, nonce });
+      assert.ok(!res.body.includes('"session"'));
+      return res.status;
+    };
+    assert.equal(await refused(idToken({ signer: someoneElse.privateKey })), 401, 'signed by someone who is not Google');
+    assert.equal(await refused(idToken({ header: { kid: 'unknown-key' } })), 401);
+    const unsigned = `${part({ alg: 'none', kid: 'key-1' })}.${part({ iss: 'https://accounts.google.com', aud: CLIENT_ID, email: MUM, email_verified: true, nonce: NONCE, exp: T0 / 1000 + 3600 })}.`;
+    assert.equal(await refused(unsigned), 401, 'a token that says it needs no signature');
+    const hs = `${part({ alg: 'HS256', kid: 'key-1' })}.${part({ aud: CLIENT_ID, email: MUM })}`;
+    assert.equal(await refused(`${hs}.${crypto.createHmac('sha256', googleJwk.n!).update(hs).digest('base64url')}`), 401, 'signed with the public key as if it were a password');
+    assert.equal(await refused(idToken({ claims: { aud: 'another-app.apps.googleusercontent.com' } })), 401, 'made for another app');
+    assert.equal(await refused(idToken({ claims: { iss: 'https://evil.example' } })), 401);
+    assert.equal(await refused(idToken({ claims: { exp: T0 / 1000 - 1 } })), 401, 'expired');
+    assert.equal(await refused(idToken({ claims: { email_verified: false } })), 401);
+    assert.equal(await refused(idToken(), 'x'.repeat(24)), 401, 'belongs to another sign-in');
+    assert.equal(await refused(idToken({ claims: { nonce: undefined } })), 401);
+    assert.equal(await refused('not.a.token'), 401);
+    assert.equal(await refused(''), 401);
+    const tampered = idToken().split('.');
+    tampered[1] = part({ iss: 'https://accounts.google.com', aud: CLIENT_ID, email: STRANGER, email_verified: true, nonce: NONCE, exp: T0 / 1000 + 3600 });
+    assert.equal(await refused(tampered.join('.')), 401, 'the email was changed after Google signed it');
+    // A real Google account that is not family.
+    assert.equal(await refused(idToken({ claims: { email: STRANGER } })), 403);
+    assert.equal((await call('GET', '/session')).status, 405);
+
+    // The session opens the family book's door (there is no book yet: 404, not 401). Nothing else does.
+    const bearer = { authorization: `Bearer ${session}` };
+    assert.equal((await call('GET', '/family', undefined, bearer)).status, 404);
+    assert.equal((await call('GET', '/family')).status, 401);
+    assert.equal((await call('GET', '/family', undefined, { authorization: `Bearer ${session.slice(0, -2)}xx` })).status, 401, 'a session with its signature changed');
+    const forged = `s1.${part({ e: MUM, x: T0 + 86400000 })}.${crypto.createHmac('sha256', 'guess').update('x').digest('base64url')}`;
+    assert.equal((await call('GET', '/family', undefined, { authorization: `Bearer ${forged}` })).status, 401);
+    assert.equal((await call('GET', '/family', undefined, { authorization: `Bearer ${idToken()}` })).status, 401, 'a Google token is not a session');
+    // A session is not the family key: it cannot read the phones' backups or publish.
+    assert.equal((await call('GET', '/backups', undefined, bearer)).status, 401);
+    assert.equal((await call('PUT', '/public', {}, bearer)).status, 401);
+    later(181 * 86400000);
+    assert.equal((await call('GET', '/family', undefined, bearer)).status, 401, 'the session ends after 180 days');
+    st.cleanup();
+  });
+
+  test(`${kind}: taking an email off the family list locks its session out at once`, async () => {
+    const { st, signIn, options } = familySetup();
+    const { session } = JSON.parse((await signIn()).body);
+    const afterRemoval = createBackupService({ ...options, familyEmails: ['other@example.com'] });
+    const res = await afterRemoval.handle({ method: 'GET', url: '/family', headers: { authorization: `Bearer ${session}` }, readBody: async () => '' });
+    assert.equal(res.status, 401);
+    const off = createBackupService({ ...options, googleClientId: '' });
+    assert.equal((await off.handle({ method: 'POST', url: '/session', headers: {}, readBody: async () => JSON.stringify({ credential: idToken(), nonce: NONCE }) })).status, 503, 'sign-in off until it is set up');
+    st.cleanup();
+  });
+
+  test(`${kind}: the family book is written version by version, and a phone that is behind is told so`, async () => {
+    const { st, call, signIn, options } = familySetup();
+    const { session } = JSON.parse((await signIn()).body);
+    const mum = { authorization: `Bearer ${session}` };
+    const key = { authorization: `Bearer ${TOKEN}` };
+
+    // Nobody without a session or the key can read or write, and nothing gets stored.
+    assert.equal((await call('PUT', '/family/after/0', book(1))).status, 401);
+    assert.equal((await call('GET', '/family', undefined, key)).status, 404);
+
+    // The family seeds it with the key; a signed-in phone then reads version 1.
+    assert.deepEqual(JSON.parse((await call('PUT', '/family/after/0', book(1), key)).body), { version: 1 });
+    const v1 = await call('GET', '/family', undefined, { ...mum, origin: ORIGIN });
+    assert.equal(v1.status, 200);
+    assert.equal(v1.headers['Access-Control-Allow-Origin'], ORIGIN);
+    assert.deepEqual(JSON.parse(v1.body), { version: 1, book: JSON.parse(book(1)) });
+    assert.deepEqual(JSON.parse((await call('GET', '/family/after/1', undefined, mum)).body), { version: 1, unchanged: true });
+    assert.equal(JSON.parse((await call('GET', '/family/after/0', undefined, mum)).body).version, 1);
+
+    // Mum's phone writes version 2. A phone still on version 1 is refused and told the newest.
+    assert.deepEqual(JSON.parse((await call('PUT', '/family/after/1', book(2), mum)).body), { version: 2 });
+    const behind = await call('PUT', '/family/after/1', book(3), mum);
+    assert.equal(behind.status, 409);
+    assert.equal(JSON.parse(behind.body).version, 2);
+    assert.deepEqual(JSON.parse((await call('GET', '/family', undefined, mum)).body).book, JSON.parse(book(2)), 'the refused write changed nothing');
+    assert.equal((await call('PUT', '/family/after/7', book(3), mum)).status, 409, 'nor can a phone jump ahead');
+
+    // What is not a whole, valid book is never written.
+    assert.equal((await call('PUT', '/family/after/2', 'not json', mum)).status, 400);
+    assert.equal((await call('PUT', '/family/after/2', L.backupJSON(L.emptyState()), mum)).status, 422);
+    const broken = JSON.parse(book(1));
+    broken.data.receipts[0].date = 'yesterday';
+    assert.equal((await call('PUT', '/family/after/2', broken, mum)).status, 422);
+    assert.equal((await call('PUT', '/family', book(3), mum)).status, 400);
+    assert.equal((await call('POST', '/family', book(3), mum)).status, 405);
+
+    // Two copies of the server writing at the same moment: one wins, the other is refused.
+    const a = createBackupService(options);
+    const b = createBackupService({ ...options, store: st.open() });
+    const put = (svc: BackupService, body: string) => svc.handle({ method: 'PUT', url: '/family/after/2', headers: mum, readBody: async () => body });
+    const both = await Promise.all([put(a, book(3)), put(b, book(4))]);
+    assert.deepEqual(both.map((r) => r.status).sort(), [201, 409]);
+    const winner = both[0].status === 201 ? book(3) : book(4);
+    const after = createBackupService({ ...options, store: st.open() }); // a fresh copy over the same storage
+    const head = JSON.parse((await after.handle({ method: 'GET', url: '/family', headers: mum, readBody: async () => '' })).body);
+    assert.equal(head.version, 3);
+    assert.deepEqual(head.book, JSON.parse(winner));
+    st.cleanup();
+  });
+}
+
+test('s3: every version of the family book is kept, and none is ever replaced', async () => {
+  const fake = fakeS3();
+  const svc = createBackupService({ token: TOKEN, store: createS3Store({ s3: fake.s3, cmd: fake.cmd, bucket: 'test' }), log: quiet });
+  const key = { authorization: `Bearer ${TOKEN}` };
+  for (let n = 0; n < 5; n++) {
+    const res = await svc.handle({ method: 'PUT', url: `/family/after/${n}`, headers: key, readBody: async () => book(n) });
+    assert.equal(res.status, 201);
+  }
+  const keys = [...fake.objects.keys()].sort();
+  assert.deepEqual(keys, [1, 2, 3, 4, 5].map((n) => `family/0000000${n}.json`));
+  assert.equal(fake.objects.get('family/00000001.json')?.body, book(0), 'the first version is still as written');
+  // A copy of the server that starts later finds the newest version, across more than one page of the listing.
+  const fresh = createBackupService({ token: TOKEN, store: createS3Store({ s3: fake.s3, cmd: fake.cmd, bucket: 'test' }), log: quiet });
+  assert.equal(JSON.parse((await fresh.handle({ method: 'GET', url: '/family', headers: key, readBody: async () => '' })).body).version, 5);
+  assert.ok(!fake.calls.includes('delete'));
+});
 
 test('s3: a shared book is kept apart from the phones, under a name that is not its code', async () => {
   const fake = fakeS3();

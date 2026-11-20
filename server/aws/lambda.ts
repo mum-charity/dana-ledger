@@ -9,6 +9,8 @@
  *   BACKUP_BUCKET    the bucket
  *   ALLOWED_ORIGINS  comma-separated sites the app runs on
  *   QUOTA_BYTES      all backups together
+ *   GOOGLE_CLIENT_ID the Google sign-in client the app uses
+ *   FAMILY_EMAILS    comma-separated Google accounts that may open the family's book
  *
  * There is no per-address upload limit here: the function keeps no memory between requests.
  * API Gateway limits how many requests a second reach it instead (see the template).
@@ -62,6 +64,8 @@ function realHandler() {
         store: createS3Store({ s3: new sdk.S3Client({}), cmd: sdk, bucket: env.BACKUP_BUCKET || '' }),
         origins: (env.ALLOWED_ORIGINS || 'https://mum.franklee.asia').split(',').map((s) => s.trim()).filter(Boolean),
         quotaBytes: Number(env.QUOTA_BYTES) || undefined,
+        googleClientId: env.GOOGLE_CLIENT_ID,
+        familyEmails: (env.FAMILY_EMAILS || '').split(','),
       })
     );
   }

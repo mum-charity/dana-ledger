@@ -3,6 +3,7 @@
  *   <dir>/devices/<device>/<time>-<hash>.json   every version
  *   <dir>/devices/<device>/latest.json          the newest one again
  *   <dir>/books/<id>.json                       a shared book, for new phones to load
+ *   <dir>/family/<8-digit number>.json          each version of the family's shared book
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,6 +39,8 @@ export function createDiskStore(dir: string): Store {
   const latestFile = (device: string) => path.join(devicesDir, device, 'latest.json');
   const booksDir = path.join(dir, 'books');
   const bookFile = (id: string) => path.join(booksDir, `${id}.json`);
+  const familyDir = path.join(dir, 'family');
+  const familyFile = (n: number) => path.join(familyDir, `${String(n).padStart(8, '0')}.json`);
 
   // Bytes already stored, so the quota holds across restarts.
   let used = 0;
@@ -67,6 +70,34 @@ export function createDiskStore(dir: string): Store {
     async saveBook(id, text) {
       await fs.promises.mkdir(booksDir, { recursive: true });
       await writeFileDurably(bookFile(id), text);
+    },
+    async familyHead() {
+      let names: string[];
+      try {
+        names = await fs.promises.readdir(familyDir);
+      } catch (e) {
+        if (isMissing(e)) return 0;
+        throw e;
+      }
+      return names.reduce((head, name) => (/^\d{8}\.json$/.test(name) ? Math.max(head, Number(name.slice(0, 8))) : head), 0);
+    },
+    getFamily: (n) => readOrNull(familyFile(n)),
+    async putFamily(n, text) {
+      await fs.promises.mkdir(familyDir, { recursive: true });
+      let fh: fs.promises.FileHandle;
+      try {
+        fh = await fs.promises.open(familyFile(n), 'wx'); // fails if this version already exists
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'EEXIST') return false;
+        throw e;
+      }
+      try {
+        await fh.writeFile(text, 'utf8');
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+      return true;
     },
     async list() {
       const out: DeviceEntry[] = [];

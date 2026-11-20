@@ -3,7 +3,7 @@
   // tsconfig of its own; keep this file inside server/ so Next does not pick it up.
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2023"],
+    "lib": ["ES2023", "DOM"],
     "types": ["node"],
     "module": "preserve",
     "moduleResolution": "bundler",
@@ -19,5 +19,5 @@
     "outDir": "dist",
     "noEmit": true
   },
-  "include": ["./*.ts", "./aws/*.ts", "../tests/server.test.mts", "../scripts/*.mts", "../lib/model.d.ts"]
+  "include": ["./*.ts", "./aws/*.ts", "../shared/*.ts", "../tests/server.test.mts", "../tests/sync.test.mts", "../scripts/*.mts", "../lib/model.d.ts"]
 }

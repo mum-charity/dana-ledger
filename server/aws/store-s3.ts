@@ -3,6 +3,7 @@
  *   devices/<device>/<time>-<hash>.json   every version
  *   devices/<device>/latest.json          the newest one again
  *   books/<id>.json                       a shared book, for new phones to load
+ *   family/<8-digit number>.json          each version of the family's shared book
  *
  * `s3` is an S3 client and `cmd` its command classes, passed in so the tests can use a stand-in.
  * The function's role may read, write and list, but not delete. The bucket keeps earlier copies
@@ -17,7 +18,7 @@ export interface S3Like {
 export interface S3Commands {
   GetObjectCommand: new (input: { Bucket: string; Key: string }) => unknown;
   PutObjectCommand: new (input: { Bucket: string; Key: string; Body: string; ContentType: string; IfNoneMatch?: string }) => unknown;
-  ListObjectsV2Command: new (input: { Bucket: string; Prefix: string; ContinuationToken?: string }) => unknown;
+  ListObjectsV2Command: new (input: { Bucket: string; Prefix: string; ContinuationToken?: string; StartAfter?: string }) => unknown;
 }
 
 interface DeviceState {
@@ -36,6 +37,10 @@ const errorName = (e: unknown): string | undefined => (e as { name?: string } | 
 export function createS3Store({ s3, cmd, bucket }: { s3: S3Like; cmd: S3Commands; bucket: string }): Store {
   const key = (device: string, name: string) => `${PREFIX}${device}/${name}`;
   const bookKey = (id: string) => `books/${id}.json`;
+  const familyKey = (n: number) => `family/${String(n).padStart(8, '0')}.json`;
+  // The newest family version this copy of the function has seen. Others may have written since,
+  // so it is only where the next look starts from, never the answer by itself.
+  let familySeen = 0;
 
   async function getText(Key: string): Promise<string | null> {
     try {
@@ -109,6 +114,31 @@ export function createS3Store({ s3, cmd, bucket }: { s3: S3Like; cmd: S3Commands
     getBook: (id) => getText(bookKey(id)),
     async saveBook(id, text) {
       await putText(bookKey(id), text);
+    },
+    async familyHead() {
+      // Names sort by number, so listing after the newest one seen returns only newer versions.
+      // Where to start is fixed before the first page: it must not move while the pages are read.
+      const startAfter = familySeen ? { StartAfter: familyKey(familySeen) } : {};
+      let token: string | undefined;
+      do {
+        const page = await s3.send(new cmd.ListObjectsV2Command({ Bucket: bucket, Prefix: 'family/', ContinuationToken: token, ...startAfter }));
+        for (const o of page.Contents || []) {
+          const m = /^family\/(\d{8})\.json$/.exec(o.Key);
+          if (m) familySeen = Math.max(familySeen, Number(m[1]));
+        }
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (token);
+      return familySeen;
+    },
+    getFamily: (n) => getText(familyKey(n)),
+    async putFamily(n, text) {
+      try {
+        await putText(familyKey(n), text, { IfNoneMatch: '*' }); // S3 refuses if this version already exists
+        return true;
+      } catch (e) {
+        if (errorName(e) === 'PreconditionFailed') return false;
+        throw e;
+      }
     },
     /** Always a fresh look at the bucket, since this is what the family reads to check on backups. */
     async list() {

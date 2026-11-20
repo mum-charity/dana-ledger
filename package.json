@@ -1,12 +1,12 @@
 {
   "name": "dana-ledger",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "private": true,
   "description": "善款簿 — offline monthly donation ledger (PWA)",
   "scripts": {
     "dev": "next dev",
     "build": "next build && node scripts/build.js",
-    "test": "npm run typecheck && node --test tests/model.test.js tests/server.test.mts",
+    "test": "npm run typecheck && node --test tests/model.test.js tests/server.test.mts tests/sync.test.mts",
     "test:e2e": "npm run build && node tests/e2e.js",
     "deploy": "npm run build && npx -y wrangler@4.158.0 deploy",
     "typecheck": "tsc -p server/tsconfig.json",
