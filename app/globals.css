@@ -151,7 +151,8 @@ b, strong { font-weight: 700; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .section-label { color: var(--muted); font-size: 0.9rem; font-weight: 600; margin: 4px 4px -4px; }
 .hint { color: var(--muted); font-size: 0.85rem; }
-.hint-top { margin: 0 4px -6px; }
+.list-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0 4px -6px; }
+.tick-all { min-height: 44px; padding: 0 14px; font-size: 0.95rem; margin-left: auto; } /* on its own line it stays over the tick boxes */
 
 .card {
   background: var(--surface);
@@ -532,6 +533,7 @@ select.input {
   margin: 0 auto;
 }
 #sheet.open .sheet { transform: none; }
+.sheet:focus { outline: none; } /* the sheet holds the focus only so that Enter saves; Tab goes on to the boxes */
 .sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 0 14px; position: sticky; top: -8px; background: var(--bg); z-index: 1; }
 .sheet-head h2 { font-size: 1.3rem; overflow-wrap: anywhere; }
 .sheet-sub { color: var(--muted); margin-top: 2px; }

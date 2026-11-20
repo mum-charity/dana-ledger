@@ -168,12 +168,51 @@ function check(cond, msg) {
   check((await page.locator('.roster-item').count()) === 4, 'roster has 4 people');
   await shot('04-people');
 
+  // --- Enter saves a change, from wherever the focus is
+  const tanAhKow = page.locator('.roster-item', { hasText: 'Tan Ah Kow 合家' }).locator('.roster-main');
+  const savedByEnter = async () => {
+    await page.waitForSelector('.sheet', { state: 'detached' });
+    return (await text('#toast')).includes('已保存');
+  };
+  await tanAhKow.click();
+  await page.waitForSelector('#sheet.open .sheet');
+  check(await page.evaluate(() => document.activeElement === document.querySelector('.sheet')), 'changing someone starts on the sheet, not on ✕');
+  await page.keyboard.press('Enter');
+  check(await savedByEnter(), 'Enter straight away saves (it does not close the sheet unsaved)');
+  await tanAhKow.click();
+  await page.fill('.sheet [name=note]', 'Enter 存的备注');
+  await page.keyboard.press('Enter');
+  check((await savedByEnter()) && (await text('.roster-item:has-text("Tan Ah Kow")')).includes('Enter 存的备注'), 'Enter in a box saves');
+  await tanAhKow.click();
+  await page.fill('.sheet [name=note]', '');
+  await page.focus('.sheet select[name=endMonth]');
+  await page.keyboard.press('Enter');
+  check((await savedByEnter()) && !(await text('.roster-item:has-text("Tan Ah Kow")')).includes('Enter 存的备注'), 'Enter on a month list saves');
+
   // --- month page (current month = Nov 2026 in this test run)
   await page.click('.tab:has-text("每月")');
   await page.waitForSelector('.people');
   const month = await text('.period-title');
   console.log('  month page:', month);
   check((await page.locator('.person').count()) === 3, 'Tan Ah Kow (Apr–Aug) not listed in Nov');
+
+  // 全部打勾: everyone still 未收 with a fixed amount, after a yes; one 撤销 takes them all back
+  const paidTicks = () => page.locator('.person .tick.is-paid').count();
+  check((await text('[data-action=tick-all]')) === '全部打勾（2 人）', '全部打勾 counts the 2 people with a fixed amount, not 王小华');
+  await shot('05-tick-all');
+  await page.click('[data-action=tick-all]');
+  await page.waitForSelector('#confirm.open .confirm');
+  check((await text('#confirm-msg')).includes('RM 30') && (await text('#confirm-msg')).includes('金额不固定的 1 人'), 'it asks first, with the total and who is left out');
+  await shot('05-tick-all-confirm');
+  await page.click('.confirm [data-action=confirm-no]');
+  check((await paidTicks()) === 0, 'saying no ticks nobody');
+  await page.click('[data-action=tick-all]');
+  await page.click('.confirm [data-action=confirm-yes]');
+  await page.waitForSelector('#toast.show');
+  check((await paidTicks()) === 2 && !(await page.locator('.person', { hasText: '王小华' }).locator('.tick.is-paid').count()), 'yes ticks 陈美玲 and 林志明、黄淑芬, not 王小华');
+  check(!(await page.locator('[data-action=tick-all]').count()), 'the button goes once there is nobody left to tick');
+  await page.click('.toast-btn');
+  check((await paidTicks()) === 0 && (await page.locator('[data-action=tick-all]').count()) === 1, '撤销 takes both ticks back');
 
   // quick pay + undo
   const row1 = page.locator('.person', { hasText: '陈美玲' });
