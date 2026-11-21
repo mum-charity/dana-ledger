@@ -106,6 +106,11 @@ const PUBLIC_FIXTURE = {
   }],
 };
 let failures = 0;
+/**
+ * True if a wait finished in time, false if it timed out. Used inside a check, so a timeout is
+ * reported as that check failing, where it happened, and the run goes on to the other checks.
+ */
+const inTime = (wait: Promise<unknown>) => wait.then(() => true, () => false);
 function check(cond: unknown, msg: string) {
   console.log((cond ? '  ok   ' : '  FAIL ') + msg);
   if (!cond) failures++;
@@ -328,15 +333,13 @@ function check(cond: unknown, msg: string) {
   await page.reload();
   await page.waitForSelector('.fund-card');
   check((await text('.fund-card')).includes('RM 299'), 'data persists after reload');
-  await page.waitForFunction(() => navigator.serviceWorker && navigator.serviceWorker.controller, null, { timeout: 10000 }).catch(() => {});
-  check(await page.evaluate(() => !!(navigator.serviceWorker && navigator.serviceWorker.controller)), 'service worker controls the page');
+  check(await inTime(page.waitForFunction(() => !!(navigator.serviceWorker && navigator.serviceWorker.controller), null, { timeout: 10000 })), 'service worker controls the page');
 
   // offline
   await context.setOffline(true);
   offline = true;
   await page.reload();
-  await page.waitForSelector('.fund-card', { timeout: 5000 }).catch(() => {});
-  check(await page.locator('.fund-card').isVisible(), 'app opens offline');
+  check(await inTime(page.waitForSelector('.fund-card', { timeout: 5000 })), 'app opens offline');
   // Offline, every screen still works and nothing is fetched except the backup attempts.
   const failed: string[] = [];
   const onFailed = (r: BrowserRequest) => { if (!new URL(r.url()).pathname.startsWith('/backup/')) failed.push(r.url()); };
@@ -369,7 +372,8 @@ function check(cond: unknown, msg: string) {
   await context.setOffline(false);
 
   // --- automatic backup: the records reach the backup server by themselves
-  await page.waitForFunction(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:backup-status')!).ok === true; } catch (_) { return false; } }, null, { timeout: 15000 }).catch(() => {});
+  const backedUp = await inTime(page.waitForFunction(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:backup-status')!).ok === true; } catch (_) { return false; } }, null, { timeout: 15000 }));
+  check(backedUp, 'the phone notes that its automatic backup worked');
   const sent = backups[backups.length - 1];
   const deviceId = await page.evaluate(() => localStorage.getItem('dana-ledger:device-id'));
   check(!!sent && sent.path === '/backup/' + deviceId && /^[0-9a-f]{32}$/.test(deviceId!), "records were sent to this phone's folder on the backup server");
@@ -621,9 +625,15 @@ function check(cond: unknown, msg: string) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check(!overflow, 'no horizontal page scroll at extra-large text');
 
-  // --- dark mode
+  // --- back to the usual text size (大), then the month page in dark mode
+  await page.click('text=返回');
+  await page.click('.topbar-settings');
+  await page.click('[data-size=large]');
+  check((await page.getAttribute('[data-size=large]', 'aria-checked')) === 'true' && (await page.evaluate(() => document.documentElement.dataset.font)) === 'large', 'the text size goes back to 大');
+  await page.click('text=返回');
+  await page.click('.fund-card');
+  await page.waitForSelector('.people');
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.click('[data-size=large]').catch(() => {});
   await shot('13-month-dark');
   await page.emulateMedia({ colorScheme: 'light' });
 
@@ -662,16 +672,14 @@ function check(cond: unknown, msg: string) {
   check((await page.inputValue('.sheet [name=dedication]')).includes('十方法界一切众生'), 'and with last time\'s dedication');
   await page.fill('.sheet [name=recipient]', 'Wat');
   await page.click('.sheet button[type=submit]');
-  await page.waitForFunction(() => document.querySelector<HTMLElement>('.form-error')!.innerText.includes('至少'), null, { timeout: 5000 }).catch(() => {});
-  check((await text('.form-error')).includes('至少'), 'saving with no amounts is refused');
+  check(await inTime(page.waitForFunction(() => document.querySelector<HTMLElement>('.form-error')!.innerText.includes('至少'), null, { timeout: 5000 })), 'saving with no amounts is refused');
   await page.keyboard.press('Escape'); // the form is scrolled to the bottom here, so close it from the keyboard
   await page.waitForSelector('.sheet', { state: 'detached' });
   await page.locator('.offering-row').first().click();
   await page.waitForSelector('[data-action=offering-delete]');
   await page.locator('[data-role=oline-amount]').nth(0).fill('2');
   await page.click('.sheet button[type=submit]');
-  await page.waitForFunction(() => document.querySelector('.offering-row') && document.querySelector<HTMLElement>('.offering-row')!.innerText.includes('19.90'));
-  check(true, 'changing an amount changes the total to RM 19.90');
+  check(await inTime(page.waitForFunction(() => !!document.querySelector<HTMLElement>('.offering-row')?.innerText.includes('RM 19.90'), null, { timeout: 5000 })), 'changing an amount changes the total to RM 19.90');
   await page.goto(base + '#/');
   await page.waitForSelector('.offerings-card');
   check((await text('.offerings-card')).includes('RM 19.90'), 'home shows this month\'s offerings');
@@ -729,10 +737,8 @@ function check(cond: unknown, msg: string) {
     const txt = (sel: string) => pg.locator(sel).first().innerText();
     const save = () => pg.click('.sheet button[type=submit]');
     const closed = () => pg.waitForSelector('.sheet', { state: 'detached' });
-    const refused = async (why: string) => {
-      await pg.waitForFunction((t) => document.querySelector<HTMLElement>('.form-error')!.innerText.includes(t), why, { timeout: 5000 }).catch(() => {});
-      return (await txt('.form-error')).includes(why) && (await pg.locator('.sheet').count()) === 1;
-    };
+    const refused = async (why: string) =>
+      (await inTime(pg.waitForFunction((t) => document.querySelector<HTMLElement>('.form-error')!.innerText.includes(t), why, { timeout: 5000 }))) && (await pg.locator('.sheet').count()) === 1;
     const person = (name: string) => pg.locator('.person', { hasText: name });
     const rosterNames = () => pg.locator('.roster-item .pname').allInnerTexts();
     const lastShared = () => pg.evaluate(() => window.__shared[window.__shared.length - 1] || '');
@@ -876,8 +882,7 @@ function check(cond: unknown, msg: string) {
     await pg.click('.period-btn[aria-label=上个月]');
     check((await txt('.month-list')).includes('2026年10月还没有名单'), 'a month before anyone joined says there is no list');
     await pg.click('text=去添加名单');
-    await pg.waitForSelector('.tab[aria-current=page]:has-text("名单")');
-    check(true, 'and 去添加名单 goes to 名单');
+    check(await inTime(pg.waitForSelector('.tab[aria-current=page]:has-text("名单")', { timeout: 5000 })) && pg.url().endsWith('/p'), 'and 去添加名单 goes to 名单');
 
     // year table: a cell records a receipt; the note has a row; other years; print
     await pg.click('.tab:has-text("全年表")');
