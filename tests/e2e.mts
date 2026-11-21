@@ -292,13 +292,48 @@ function check(cond: unknown, msg: string) {
   const summary = await text('.summary');
   console.log('  Nov summary:', summary.replace(/\s+/g, ' '));
   check(summary.includes('RM 59') && summary.includes('3 / 3 人'), 'Nov received RM 59 from 3/3');
-  check(summary.includes('RM 250') && summary.includes('RM 279'), 'Nov opening RM 250, closing RM 279');
+  const tiles = (await page.locator('.summary-grid dd').allInnerTexts()).join(' | ');
+  check(tiles.startsWith('250 | ') && tiles.endsWith(' | 279'), 'Nov opening RM 250, closing RM 279');
   check(summary.includes('RM 20 是预先付了'), 'prepaid Dec RM 20 noted');
   await shot('08-month');
 
   // --- year grid
   await page.click('.tab:has-text("全年表")');
   await page.waitForSelector('.grid');
+  // It is November: the table opens on 10月 and 11月 beside the names, not on 1月.
+  const opensAt = await page.evaluate(() => {
+    const wrap = document.querySelector('.grid-wrap')!.getBoundingClientRect();
+    const names = document.querySelector('.grid thead .name-col')!.getBoundingClientRect();
+    const col = (m: string) => document.querySelector(`.grid thead th[data-month="${m}"]`)!.getBoundingClientRect();
+    const el = document.querySelector('.grid-wrap')!;
+    return {
+      oct: Math.round(col('2026-10').left - names.right), // 0 when 10月 is the first month beside the names
+      atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1, // or the table is as far along as it goes
+      scrolled: el.scrollLeft > 0,
+      novInView: col('2026-11').left >= names.right - 1 && col('2026-11').right <= wrap.right + 1,
+    };
+  });
+  console.log('  year table opens at:', JSON.stringify(opensAt));
+  check(opensAt.scrolled && opensAt.novInView && (Math.abs(opensAt.oct) <= 1 || opensAt.atEnd), 'the year table opens with last month and this month in view');
+  // November only shows that the table went to its end. In June it must stop with 5月 beside the names.
+  await context.clock.setFixedTime(new Date('2026-06-06T10:00:00'));
+  await page.reload();
+  await page.waitForSelector('.grid');
+  const june = await page.evaluate(() => {
+    const el = document.querySelector('.grid-wrap')!;
+    const names = document.querySelector('.grid thead .name-col')!.getBoundingClientRect();
+    const col = (m: string) => document.querySelector(`.grid thead th[data-month="${m}"]`)!.getBoundingClientRect();
+    return { may: Math.round(col('2026-05').left - names.right), juneInView: col('2026-06').right <= el.getBoundingClientRect().right + 1, atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 };
+  });
+  console.log('  in June it opens at:', JSON.stringify(june));
+  check(Math.abs(june.may) <= 1 && june.juneInView && !june.atEnd, 'in June the year table opens with 5月 beside the names and 6月 in view');
+  await context.clock.setFixedTime(new Date('2026-11-06T10:00:00'));
+  await page.reload();
+  await page.waitForSelector('.grid');
+  const cellOf = (name: string, mo: number) => page.locator('tbody tr', { hasText: name }).locator('td').nth(mo - 1);
+  check((await cellOf('Tan Ah Kow', 4).locator('.due-box').count()) === 1, 'a month still owed has an empty box, not only a colour');
+  const open = page.locator('tbody tr').filter({ hasNot: page.locator('.gpledge') }).first();
+  check((await open.count()) === 1 && !(await open.locator('td.due').count()), 'someone with no fixed amount has no month marked as owed');
   const balRow = await page.locator('.bal-row td').allInnerTexts();
   console.log('  balance row:', balRow.join(' | '));
   check(JSON.stringify(balRow.slice(0, 12)) === JSON.stringify(['70', '90', '110', '130', '150', '170', '190', '210', '230', '250', '279', '']), 'year 结余 row matches hand calculation');
@@ -624,6 +659,27 @@ function check(cond: unknown, msg: string) {
   await shot('12-month-xlarge');
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check(!overflow, 'no horizontal page scroll at extra-large text');
+  // A narrower phone: the three tiles under 本月已收 must still fit, each on one line.
+  await page.setViewportSize({ width: 360, height: 740 });
+  const narrow = await page.evaluate(() => {
+    const card = document.querySelector('.summary')!.getBoundingClientRect();
+    const tiles = [...document.querySelectorAll('.summary-grid div')].map((d) => d.getBoundingClientRect());
+    const oneLine = [...document.querySelectorAll('.summary-grid dt')].every((d) => d.getBoundingClientRect().height < 30);
+    return { scroll: document.documentElement.scrollWidth > window.innerWidth, inside: tiles.every((t) => t.right <= card.right), oneLine };
+  });
+  check(!narrow.scroll && narrow.inside && narrow.oneLine, 'extra-large text on a 360px phone: the summary tiles stay inside their card');
+  const head = await page.evaluate(() => {
+    const title = document.querySelector('.topbar-title')!;
+    const size = (sel: string) => parseFloat(getComputedStyle(document.querySelector(sel)!).fontSize);
+    const bar = document.querySelector('.topbar')!.getBoundingClientRect();
+    const tabs = document.querySelector('.tabs')!.getBoundingClientRect();
+    // A cut-off third line would add a whole line's height; tall glyphs alone add a few pixels.
+    return { sh: title.scrollHeight, ch: title.clientHeight, whole: title.scrollHeight < title.clientHeight + size('.topbar-title') / 2, bigger: size('.topbar-title') > size('.pname'), under: tabs.top >= bar.bottom - 1 };
+  });
+  console.log('  特大 header:', JSON.stringify(head));
+  check(head.whole && head.bigger && head.under, 'extra-large text on a 360px phone: the fund\'s name shows in full at full size, with the tabs under it');
+  await shot('12b-month-xlarge-360');
+  await page.setViewportSize({ width: 390, height: 844 });
 
   // --- back to the usual text size (大), then the month page in dark mode
   await page.click('text=返回');
@@ -710,11 +766,26 @@ function check(cond: unknown, msg: string) {
   await page.waitForSelector('.sheet', { state: 'detached' });
   await shot('31-desktop-month');
   check(await arrowsCentred(), 'desktop: the month arrows sit in the middle of their round buttons');
+  const edges = await page.evaluate(() => {
+    const left = (sel: string) => Math.round(document.querySelector(sel)!.getBoundingClientRect().left);
+    const back = document.querySelector('.topbar-btn')!;
+    return { backText: left('.topbar-btn') + parseFloat(getComputedStyle(back).paddingLeft), page: left('.summary'), title: left('.topbar-title'), backRight: Math.round(back.getBoundingClientRect().right) };
+  });
+  check(Math.abs(edges.backText - edges.page) <= 1 && edges.title - edges.backRight < 20, 'desktop: the top bar starts on the page\'s left edge, with the title beside 返回');
   await page.click('.tab:has-text("全年表")');
   await page.waitForSelector('.grid');
   await shot('32-desktop-year');
   check(await arrowsCentred(), 'desktop: the year arrows sit in the middle of their round buttons');
   check(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'desktop: no horizontal page scroll');
+  await page.locator('.sidebar .side-link', { hasText: '全部项目' }).click();
+  await page.waitForSelector('.fund-card');
+  const rights = await page.evaluate(() => ['.fund-grid', '.page-home > [data-action=fund-new]', '.offerings-card'].map((s) => Math.round(document.querySelector(s)!.getBoundingClientRect().right)));
+  check(rights.every((r) => r === rights[0]), 'desktop: the home page\'s blocks all end on the same right edge');
+  check(!(await page.locator('[data-action=install]').count()), 'desktop: no 添加到手机主屏幕 button');
+  await shot('33-desktop-home');
+  await page.locator('.sidebar .side-link', { hasText: 'Bhante 医疗费用' }).click();
+  await page.click('.tab:has-text("全年表")');
+  await page.waitForSelector('.grid');
   await page.setViewportSize({ width: 390, height: 844 });
 
   // --- the rest of the forms, on a phone with a small book of its own: what each one refuses,
@@ -735,6 +806,7 @@ function check(cond: unknown, msg: string) {
     pg.on('pageerror', (e) => errors.push(e.message));
     pg.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     const txt = (sel: string) => pg.locator(sel).first().innerText();
+    const closing = () => pg.locator('.summary-total dd').innerText(); // 本月结余, a bare number
     const save = () => pg.click('.sheet button[type=submit]');
     const closed = () => pg.waitForSelector('.sheet', { state: 'detached' });
     const refused = async (why: string) =>
@@ -858,14 +930,14 @@ function check(cond: unknown, msg: string) {
     await pg.fill('.sheet [name=amount]', '10');
     await save();
     await closed();
-    check((await txt('.prow')).includes('−RM 10') && (await txt('.summary')).includes('RM 105'), 'changed to RM 10: the month ends on RM 105');
+    check((await txt('.prow')).includes('−RM 10') && (await closing()) === '105', 'changed to RM 10: the month ends on RM 105');
     await pg.click('.prow');
     await pg.click('[data-action=payout-delete]');
     await pg.click('.confirm [data-action=confirm-yes]');
     await closed();
-    check(!(await pg.locator('.prow').count()) && (await txt('.summary')).includes('RM 115'), 'deleted: the month ends on RM 115');
+    check(!(await pg.locator('.prow').count()) && (await closing()) === '115', 'deleted: the month ends on RM 115');
     await pg.click('.toast-btn');
-    check((await pg.locator('.prow').count()) === 1 && (await txt('.summary')).includes('RM 105'), '撤销 brings the hand-over back: RM 105');
+    check((await pg.locator('.prow').count()) === 1 && (await closing()) === '105', '撤销 brings the hand-over back: RM 105');
 
     // 本月备注, then the month's report for WhatsApp
     await pg.click('.note-btn');
@@ -911,7 +983,7 @@ function check(cond: unknown, msg: string) {
     await pg.fill('.sheet [name=opening]', '200');
     await save();
     await closed();
-    check((await txt('.topbar-title')) === '护法基金 2026' && (await txt('.summary')).includes('RM 205'), 'the fund is renamed, and RM 100 more to start with shows in the month');
+    check((await txt('.topbar-title')) === '护法基金 2026' && (await closing()) === '205', 'the fund is renamed, and RM 100 more to start with shows in the month');
     await pg.click('[data-action=back]');
     await pg.waitForSelector('.fund-card');
     check((await txt('.fund-card')).includes('护法基金 2026') && (await txt('.fund-card')).includes('RM 225'), 'home shows the new name and RM 225 on hand');

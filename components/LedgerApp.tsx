@@ -1,6 +1,6 @@
 'use client';
 /* 善款簿 — the screens. The records and everything behind them are in store.tsx. */
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
 import type { Fund, Member, Offering, Settings } from '../lib/model.ts';
 import type { PublicSummary } from '../server/public-summary.ts';
 import {
@@ -139,14 +139,14 @@ function FundHeader({ fund, tab, month }: { fund: Fund; tab: 'month' | 'year' | 
     ['people', '名单', `#/f/${fund.id}/p`],
   ];
   return (
-    <>
+    <div className="fund-head">
       <Topbar title={fund.name} back right={<button className="topbar-btn" data-action="fund-edit" onClick={() => openSheet('fund', { id: fund.id })}>编辑</button>} />
       <nav className="tabs" aria-label="页面">
         {tabs.map(([key, label, to]) => (
           <button key={key} className="tab" aria-current={key === tab ? 'page' : 'false'} onClick={goReplace(to)}>{label}</button>
         ))}
       </nav>
-    </>
+    </div>
   );
 }
 
@@ -406,9 +406,10 @@ function MonthView({ fund, month }: { fund: Fund; month: string }) {
           </div>
           <Progress pct={pct} />
           <dl className="summary-grid">
-            <div><dt>上月结余</dt><dd>{money(s.opening)}</dd></div>
-            <div><dt>本月交出</dt><dd>{s.paidOut ? '−' + money(s.paidOut) : money(0)}</dd></div>
-            <div className="summary-total"><dt>本月结余</dt><dd>{money(s.closing)}</dd></div>
+            {/* Bare numbers, as in the year table: three amounts with the currency do not fit across a phone. */}
+            <div><dt>上月结余</dt><dd>{L.fmtNum(s.opening)}</dd></div>
+            <div><dt>本月交出</dt><dd>{s.paidOut ? '−' + L.fmtNum(s.paidOut) : L.fmtNum(0)}</dd></div>
+            <div className="summary-total"><dt>本月结余</dt><dd>{L.fmtNum(s.closing)}</dd></div>
           </dl>
           {prepaid ? <p className="hint">{`另有 ${money(prepaid)} 是预先付了以后月份的。`}</p> : null}
         </section>
@@ -418,12 +419,15 @@ function MonthView({ fund, month }: { fund: Fund; month: string }) {
         <div className="month-list">
         {total ? (
           <>
-            <div className="list-top">
-              <p className="hint">收到钱后，点右边的方格打勾 ✓</p>
-              {tickAllDue(s).length > 1 ? (
-                <button className="btn btn-ghost tick-all" data-action="tick-all" onClick={() => tickAll(fund.id, month)}>{`全部打勾（${tickAllDue(s).length} 人）`}</button>
-              ) : null}
-            </div>
+            {/* The hint is for a month nobody is ticked in yet; after that it only pushes the names down. */}
+            {!s.receivedCount || tickAllDue(s).length > 1 ? (
+              <div className="list-top">
+                {!s.receivedCount ? <p className="hint">收到钱后，点右边的方格打勾 ✓</p> : null}
+                {tickAllDue(s).length > 1 ? (
+                  <button className="btn btn-ghost tick-all" data-action="tick-all" onClick={() => tickAll(fund.id, month)}>{`全部打勾（${tickAllDue(s).length} 人）`}</button>
+                ) : null}
+              </div>
+            ) : null}
             <ol className="people">{s.members.map((m) => <PersonRow key={m.id} m={m} month={month} no={numbers.get(m.id)} />)}</ol>
           </>
         ) : (
@@ -476,13 +480,24 @@ function YearView({ fund, year }: { fund: Fund; year: number }) {
   const g = L.yearGrid(state, fund.id, year);
   const now = L.currentMonth();
 
+  // On a phone only a few months fit across. This year's table opens with last month and this
+  // month beside the names, not at 1月.
+  const wrap = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const first = el.querySelector<HTMLElement>('thead th[data-month]');
+    const target = el.querySelector<HTMLElement>(`thead th[data-month="${L.addMonths(now, -1)}"]`);
+    el.scrollLeft = first && target ? target.offsetLeft - first.offsetLeft : 0;
+  }, [fund.id, year, now, g.rows.length > 0]); // the last one: the table appears when the first person is added
+
   const table = g.rows.length ? (
-    <div className="grid-wrap" tabIndex={0} aria-label={`${year}年 全年表，可以左右滑动`}>
+    <div className="grid-wrap" ref={wrap} tabIndex={0} aria-label={`${year}年 全年表，可以左右滑动`}>
       <table className="grid">
         <thead>
           <tr>
             <th scope="col" className="name-col">名字</th>
-            {g.months.map((m) => <th key={m} scope="col">{`${+m.slice(5)}月`}</th>)}
+            {g.months.map((m) => <th key={m} scope="col" data-month={m}>{`${+m.slice(5)}月`}</th>)}
             <th scope="col">合计</th>
           </tr>
         </thead>
@@ -497,10 +512,12 @@ function YearView({ fund, year }: { fund: Fund; year: number }) {
                 </th>
                 {r.cells.map((c) => {
                   let cls = 'cell';
-                  let text = '';
+                  let text: ReactNode = '';
                   if (c.receipt) { cls += ' paid'; text = L.fmtNum(c.receipt.amount); }
                   else if (!c.active) { cls += ' off'; text = '–'; }
-                  else if (c.month <= now) { cls += ' due'; }
+                  // Owed only by someone with a fixed monthly amount. The empty box is the month
+                  // page's 未收 box, so the cell does not depend on its colour alone.
+                  else if (c.month <= now && r.member.pledge) { cls += ' due'; text = <span className="due-box" aria-hidden="true" />; }
                   const label = `${r.member.name} ${L.monthLabel(c.month)}${c.receipt ? ' 已收 ' + L.fmtNum(c.receipt.amount) : ' 未收'}`;
                   return (
                     <td key={c.month} className={cls}>

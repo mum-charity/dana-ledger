@@ -19,6 +19,8 @@ Last checked on 20 Nov 2026.
 
 https://mum.franklee.asia/ runs version 2.5.1, deployed from the `dev` branch on 20 Nov 2026. 2.0.0 was the 1.5.0 app rebuilt with Next.js and React, plus a desktop layout and without the demo. **The 2.x versions were checked in desktop Chrome at a phone's size, not yet on a real phone.**
 
+2.5.2 is on `dev` and **not deployed yet**. On a phone: this year's 全年表 opens with last month and this month beside the names, not at 1月; the three boxes under 本月已收 show bare numbers (no RM) and no longer run off the side at 特大; a long fund name takes a second line in the top bar and is no longer cut short; the 「收到钱后…」 hint goes away once someone is ticked that month, so more names fit; a month still owed has an empty box in 全年表 as well as its red colour, and someone with 金额不固定 has no month marked as owed. On a wide screen: the title sits on the left beside 返回, the home page is one column, the ‹ › arrows sit beside the month or year, and 添加到手机主屏幕 is offered only on a phone or tablet.
+
 2.5.1 centres the ‹ › arrows beside the month and the year: they are drawn now, not typed, because the font put them below the middle of their round buttons.
 
 2.5.0 adds 全部打勾 on the month page (everyone still 未收 with a fixed monthly amount, after she says yes; one 撤销 takes them all back), and Enter saves a sheet, including one opened to change a record.
@@ -26,7 +28,7 @@ https://mum.franklee.asia/ runs version 2.5.1, deployed from the `dev` branch on
 | Copy | Version | Backup |
 |---|---|---|
 | https://mum.franklee.asia/ | 2.5.1 | Automatic, to the family's backup server |
-| Branch `dev` | 2.5.1 | Automatic |
+| Branch `dev` | 2.5.2 | Automatic |
 | Branch `main` | 2.0.1 | Automatic |
 
 To go back to 1.5.0: `npx wrangler@4.158.0 rollback cff2a828-edf0-41cd-81eb-416fa8cb617a`. The tag `pi-server-as-installed` keeps 1.6.0 with the backup server's files exactly as they were installed on the Pi.
