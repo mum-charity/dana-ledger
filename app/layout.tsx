@@ -19,7 +19,7 @@ export const viewport = {
 // Catch it here so the 添加到手机主屏幕 button can still use it.
 const CATCH_INSTALL_PROMPT = `window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__installPrompt=e;});`;
 
-export default function RootLayout({ children }) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     // The app sets data-font from her saved setting once it has loaded.
     <html lang="zh-Hans" data-font="large" suppressHydrationWarning>

@@ -15,7 +15,7 @@
  * Other settings: BACKUP_SERVER (default https://mum-backup.franklee.asia).
  */
 import fs from 'node:fs';
-import L from '../lib/model.js';
+import L from '../lib/model.ts';
 import { publicSummary, type PublicRequest } from '../server/public-summary.ts';
 
 const args = process.argv.slice(2);

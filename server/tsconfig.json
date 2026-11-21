@@ -1,9 +1,10 @@
 {
-  // The backup server and its tests. The app (Next.js) is still plain JavaScript and has no
-  // tsconfig of its own; keep this file inside server/ so Next does not pick it up.
+  // The backup server, the scripts and the tests: everything Node runs as it is, by dropping the
+  // types. The app (Next.js) is checked by the tsconfig.json at the top of the repo; keep this
+  // file inside server/ so Next does not pick it up.
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2023", "DOM"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node"],
     "module": "preserve",
     "moduleResolution": "bundler",
@@ -19,5 +20,5 @@
     "outDir": "dist",
     "noEmit": true
   },
-  "include": ["./*.ts", "./aws/*.ts", "../shared/*.ts", "../tests/server.test.mts", "../tests/sync.test.mts", "../scripts/*.mts", "../lib/model.d.ts"]
+  "include": ["./*.ts", "./aws/*.ts", "../shared/*.ts", "../lib/*.ts", "../tests/*.mts", "../scripts/*.mts"]
 }

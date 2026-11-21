@@ -2,23 +2,75 @@
  * 善款簿 — everything behind the screens: the records, saving them on the phone, the automatic
  * backup, the hash routes, and which sheet, confirm box or toast is showing.
  *
- * The records are one plain object that lib/model.js changes in place, so React can't tell from
+ * The records are one plain object that lib/model.ts changes in place, so React can't tell from
  * the object when it changed. Instead every change calls emit(), and the screens re-read S.
  *
  * Nothing here runs until init() is called in the browser: Next.js also loads this file while
  * building the static page, where there is no window or localStorage.
  */
-import L from '../lib/model.js';
-import { syncOnce } from '../shared/sync.ts';
+import type { ReactNode } from 'react';
+import L, { type Fund, type Settings, type State } from '../lib/model.ts';
+import { syncOnce, type SyncMeta, type SyncResult } from '../shared/sync.ts';
+import type { PublicSummary } from '../server/public-summary.ts';
 
 export { L };
 export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION;
 const BACKUP_NAG_DAYS = 14;
 
+/** The forms in components/sheets.tsx, by the name openSheet() takes. */
+export type SheetType = 'receipt' | 'payout' | 'offering' | 'member' | 'bulk' | 'fund' | 'note' | 'install';
+export interface ConfirmOptions {
+  title: string;
+  message?: ReactNode;
+  ok?: string;
+  cancel?: string;
+  danger?: boolean;
+}
+export interface ToastOptions {
+  actionLabel?: string;
+  action?: () => void;
+  ms?: number;
+}
+/** The family session the server gave after sign-in. */
+export interface Account {
+  session: string;
+  email: string;
+  expiresAt: number;
+}
+/** How the last automatic backup went. */
+export interface BackupStatus {
+  ok?: boolean;
+  at?: number;
+  error?: string;
+  lastOkAt?: number | null;
+}
+/** Which page the address names. */
+export type Route =
+  | { name: 'month'; fund: Fund; month: string }
+  | { name: 'year'; fund: Fund; year: number }
+  | { name: 'people'; fund: Fund }
+  | { name: 'home' | 'offerings' | 'settings' | 'restore'; fund?: undefined }
+  | { name: 'public'; fund?: undefined; landing?: boolean };
+
+interface Screen {
+  ready: boolean;
+  state: State;
+  storageOK: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- each sheet names its own props
+  sheet: { type: SheetType; props: any; key: number } | null;
+  sheetShown: boolean;
+  confirm: Required<ConfirmOptions> | null;
+  toast: { msg: string; actionLabel?: string; action: (() => void) | null } | null;
+  toastShown: boolean;
+  signingIn: boolean;
+  sync: { busy: boolean; ok?: boolean; at?: number; error?: string };
+}
+
 /** What the screens read. Changed only by the functions in this file. */
-export const S = {
+export const S: Screen = {
   ready: false,
-  state: null,
+  // Empty until init() loads the records; the screens show nothing before S.ready.
+  state: null as unknown as State,
   storageOK: true,
   sheet: null, // { type, props, key }
   sheetShown: false,
@@ -32,9 +84,9 @@ export const S = {
 const STORE_KEY = 'dana-ledger:v1';
 
 // ================================================================ re-rendering
-const listeners = new Set();
+const listeners = new Set<() => void>();
 let version = 0;
-export function subscribe(fn) {
+export function subscribe(fn: () => void) {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
@@ -45,8 +97,8 @@ export function emit() {
 }
 
 // ================================================================ storage
-function loadState() {
-  let raw = null;
+function loadState(): State {
+  let raw: string | null = null;
   try {
     raw = localStorage.getItem(STORE_KEY);
   } catch (e) {
@@ -86,7 +138,7 @@ function save() {
     navigator.storage.persist().catch(() => {});
   }
 }
-export function mutate(fn) {
+export function mutate<T>(fn: (s: State) => T): T {
   const out = fn(S.state);
   save();
   emit();
@@ -96,13 +148,13 @@ export function mutate(fn) {
 function applyFontSize() {
   document.documentElement.dataset.font = S.state.settings.fontSize || 'large';
 }
-export function setFontSize(size) {
+export function setFontSize(size: Settings['fontSize']) {
   S.state.settings.fontSize = size;
   persist();
   applyFontSize();
   emit();
 }
-export function setCurrency(value) {
+export function setCurrency(value: string) {
   S.state.settings.currency = value.trim().slice(0, 8);
   persist();
   emit();
@@ -122,13 +174,13 @@ const KEY_DEVICE = 'dana-ledger:device-id'; // this phone's folder on the server
 const KEY_PENDING = 'dana-ledger:backup-pending'; // set while there are changes not yet on the server
 const KEY_STATUS = 'dana-ledger:backup-status'; // { ok, at, error, lastOkAt } of the last attempt
 
-function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
-function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* ignore */ } }
-function lsDel(k) { try { localStorage.removeItem(k); } catch (_) { /* ignore */ } }
+function lsGet(k: string): string | null { try { return localStorage.getItem(k); } catch (_) { return null; } }
+function lsSet(k: string, v: string) { try { localStorage.setItem(k, v); } catch (_) { /* ignore */ } }
+function lsDel(k: string) { try { localStorage.removeItem(k); } catch (_) { /* ignore */ } }
 
-let device = null;
+let device: string | null = null;
 /** This phone's backup id: 32 random hex digits, made once and kept. */
-function deviceId() {
+function deviceId(): string {
   if (device) return device;
   let id = lsGet(KEY_DEVICE);
   if (!/^[0-9a-f]{32}$/.test(id || '')) {
@@ -137,14 +189,14 @@ function deviceId() {
     id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
     lsSet(KEY_DEVICE, id);
   }
-  return (device = id);
+  return (device = id as string);
 }
 
-export function serverStatus() {
-  try { return JSON.parse(lsGet(KEY_STATUS)) || {}; } catch (_) { return {}; }
+export function serverStatus(): BackupStatus {
+  try { return JSON.parse(lsGet(KEY_STATUS) as string) || {}; } catch (_) { return {}; }
 }
 
-async function sendToServer(body) {
+async function sendToServer(body: string) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 20000);
   let res;
@@ -158,7 +210,7 @@ async function sendToServer(body) {
   if (!res.ok) throw new Error(res.status === 507 ? '服务器的空间满了' : `服务器出错（${res.status}）`);
 }
 
-let uploadTimer = null;
+let uploadTimer: ReturnType<typeof setTimeout> | undefined;
 let uploading = false;
 
 /** A fresh marker each time, so an upload can tell whether more changes came in while it ran. */
@@ -173,7 +225,7 @@ function serverChanged() {
   // book is not sent twice after every tick.
   scheduleUpload(account() ? 5 * 60 * 1000 : 3000);
 }
-function scheduleUpload(ms) {
+function scheduleUpload(ms: number) {
   if (backupOff || !lsGet(KEY_PENDING)) return;
   clearTimeout(uploadTimer);
   uploadTimer = setTimeout(uploadNow, ms);
@@ -196,7 +248,7 @@ async function uploadNow() {
     S.state.settings.changesSinceBackup = 0;
     persist();
   } catch (e) {
-    lsSet(KEY_STATUS, JSON.stringify({ ok: false, at: Date.now(), error: e.message, lastOkAt: before.lastOkAt || null }));
+    lsSet(KEY_STATUS, JSON.stringify({ ok: false, at: Date.now(), error: (e as Error).message, lastOkAt: before.lastOkAt || null }));
   } finally {
     uploading = false;
   }
@@ -205,7 +257,7 @@ async function uploadNow() {
   return ok;
 }
 
-function daysSince(ts) {
+function daysSince(ts: number | null | undefined) {
   return ts ? Math.floor((Date.now() - ts) / 86400000) : Infinity;
 }
 
@@ -233,10 +285,11 @@ const KEY_NONCE = 'dana-ledger:google-nonce'; // { nonce, at } while the browser
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
 let GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 
-function lsJSON(k) { try { return JSON.parse(lsGet(k)); } catch (_) { return null; } }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- whatever was kept; each reader checks it
+function lsJSON(k: string): any { try { return JSON.parse(lsGet(k) as string); } catch (_) { return null; } }
 
 /** Who is signed in on this device: { session, email, expiresAt }, or null. */
-export function account() {
+export function account(): Account | null {
   const a = lsJSON(KEY_SESSION);
   return a && typeof a.session === 'string' && typeof a.email === 'string' && a.expiresAt > Date.now() ? a : null;
 }
@@ -276,7 +329,7 @@ function takeSignIn() {
   return true;
 }
 
-async function finishSignIn(credential, nonce) {
+async function finishSignIn(credential: string, nonce: string) {
   S.signingIn = true;
   emit();
   try {
@@ -305,7 +358,7 @@ async function finishSignIn(credential, nonce) {
   syncNow();
 }
 
-let syncTimer = null;
+let syncTimer: ReturnType<typeof setTimeout> | undefined;
 let syncing = false;
 let syncWanted = false;
 // Goes up whenever the records are replaced from outside the shared book. A sync that was in
@@ -323,7 +376,7 @@ function leaveFamily() {
 }
 
 /** fetch that gives up after a minute, so one request that never answers cannot stall syncing for good. */
-function fetchOrGiveUp(url, init) {
+function fetchOrGiveUp(url: RequestInfo | URL, init?: RequestInit) {
   const ctl = new AbortController();
   setTimeout(() => ctl.abort(), 60000); // covers reading the answer too; harmless once it is done
   return fetch(url, { ...init, signal: ctl.signal });
@@ -335,14 +388,14 @@ function familyChanged() {
   lsSet(KEY_SYNC_DIRTY, Math.random().toString(36).slice(2));
   scheduleSync(3000);
 }
-function scheduleSync(ms) {
+function scheduleSync(ms: number) {
   if (!account()) return;
   clearTimeout(syncTimer);
   syncTimer = setTimeout(syncNow, ms);
 }
 
 /** Fetch what the family changed, combine it with this device's records, and send back what is new here. */
-export async function syncNow() {
+export async function syncNow(): Promise<boolean> {
   clearTimeout(syncTimer);
   if (!account()) return false;
   if (syncing) {
@@ -358,7 +411,7 @@ export async function syncNow() {
   const stillFamily = () => {
     if (epoch !== familyEpoch) throw new Error('the records were replaced while syncing');
   };
-  let result;
+  let result: SyncResult;
   try {
     result = await syncOnce({
       server: SERVER,
@@ -382,7 +435,7 @@ export async function syncNow() {
         serverChanged(); // this device's own backup follows, as always
         emit();
       },
-      meta: () => lsJSON(KEY_SYNC),
+      meta: (): SyncMeta | null => lsJSON(KEY_SYNC),
       setMeta: (m) => {
         stillFamily();
         lsSet(KEY_SYNC, JSON.stringify(m));
@@ -405,7 +458,7 @@ export async function syncNow() {
     });
   } catch (e) {
     console.error('sync failed', e);
-    result = { ok: false, why: 'error', message: String((e && e.message) || e) };
+    result = { ok: false, why: 'error', message: String((e && (e as Error).message) || e) };
   }
   syncing = false;
 
@@ -460,7 +513,7 @@ export async function signOut() {
 
 // ================================================================ helpers
 export const cur = () => S.state.settings.currency || '';
-export const money = (c) => L.fmtMoney(c, cur());
+export const money = (c: number) => L.fmtMoney(c, cur());
 export const thisYear = () => +L.currentMonth().slice(0, 4);
 
 // ================================================================ routing
@@ -474,7 +527,7 @@ export const thisYear = () => +L.currentMonth().slice(0, 4);
 // #/public              公开账目: the funds' totals for anyone, with no names (see fetchPublicAccounts)
 // #/new                 the empty book's welcome, for starting a book on this device without signing in
 // (none)                home; or, with no records and nobody signed in, the public accounts
-export function route() {
+export function route(): Route {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'f' && parts[1]) {
     const fund = L.getFund(S.state, parts[1]);
@@ -498,7 +551,7 @@ export function route() {
 // there is a page to go back to, and `sheet` marks the entry a sheet added, so the phone's back
 // button closes the sheet instead of leaving the page. Next.js passes these calls through and
 // keeps its own keys beside ours.
-export function nav(hash, replace = false) {
+export function nav(hash: string, replace = false) {
   if (replace) history.replaceState(history.state, '', hash);
   else history.pushState({ d: ((history.state && history.state.d) || 0) + 1 }, '', hash);
   window.scrollTo(0, 0);
@@ -511,12 +564,12 @@ export function goBack() {
 
 // ================================================================ sheets
 let sheetSeq = 0;
-let lastFocus = null;
-let sheetClosedWaiters = [];
+let lastFocus: HTMLElement | null = null;
+let sheetClosedWaiters: (() => void)[] = [];
 
-/** Open a sheet. `type` picks the form in components/sheets.jsx. */
-export function openSheet(type, props = {}) {
-  lastFocus = document.activeElement;
+/** Open a sheet. `type` picks the form in components/sheets.tsx. */
+export function openSheet(type: SheetType, props: Record<string, unknown> = {}) {
+  lastFocus = document.activeElement as HTMLElement | null;
   const wasOpen = !!S.sheet;
   S.sheet = { type, props, key: ++sheetSeq };
   S.sheetShown = false;
@@ -533,7 +586,7 @@ export function openSheet(type, props = {}) {
     if (!root || root.contains(document.activeElement)) return;
     // A new record starts in its first box. Changing one starts on the sheet itself, where Enter
     // saves and no phone keyboard pops up. A sheet with nothing to save starts on ✕.
-    const first = root.querySelector('[data-autofocus]') || root.querySelector('.sheet[tabindex]') || root.querySelector('.sheet-x');
+    const first = root.querySelector<HTMLElement>('[data-autofocus]') || root.querySelector<HTMLElement>('.sheet[tabindex]') || root.querySelector<HTMLElement>('.sheet-x');
     if (first) first.focus({ preventScroll: true });
   });
 }
@@ -548,9 +601,9 @@ function hideSheet() {
   waiters.forEach((w) => w());
 }
 /** Close the open sheet. Resolves once it is gone and history is back on the page entry. */
-export function closeSheet() {
+export function closeSheet(): Promise<void> {
   if (!S.sheet) return Promise.resolve();
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     sheetClosedWaiters.push(resolve);
     if (history.state && history.state.sheet) history.back(); // popstate hides it
     else hideSheet();
@@ -558,20 +611,20 @@ export function closeSheet() {
 }
 
 // ================================================================ confirm
-let confirmResolve = null;
+let confirmResolve: ((yes: boolean) => void) | null = null;
 /** Ask a yes/no question. `message` may be JSX. Resolves true for yes. */
-export function confirmBox({ title, message = '', ok = '确定', cancel = '不要', danger = false }) {
-  return new Promise((resolve) => {
+export function confirmBox({ title, message = '', ok = '确定', cancel = '不要', danger = false }: ConfirmOptions): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
     confirmResolve = resolve;
     S.confirm = { title, message, ok, cancel, danger };
     emit();
     requestAnimationFrame(() => {
-      const btn = document.querySelector('#confirm [data-action="confirm-no"].btn');
+      const btn = document.querySelector<HTMLElement>('#confirm [data-action="confirm-no"].btn');
       if (btn) btn.focus();
     });
   });
 }
-export function closeConfirm(value) {
+export function closeConfirm(value: boolean) {
   S.confirm = null;
   const r = confirmResolve;
   confirmResolve = null;
@@ -580,8 +633,8 @@ export function closeConfirm(value) {
 }
 
 // ================================================================ toast
-let toastTimer = null;
-export function showToast(msg, { actionLabel, action, ms } = {}) {
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+export function showToast(msg: string, { actionLabel, action, ms }: ToastOptions = {}) {
   S.toast = { msg, actionLabel, action: action || null };
   S.toastShown = true;
   clearTimeout(toastTimer);
@@ -603,7 +656,7 @@ export function toastAction() {
 // Android can show its own install prompt. On iPhone a page cannot start the install at all,
 // so there the button opens the steps instead.
 export const phone = { ios: false, android: false, inAppBrowser: false, iosOtherBrowser: false };
-let installPrompt = null; // Android's prompt, held until the button is tapped
+let installPrompt: BeforeInstallPromptEvent | null = null; // Android's prompt, held until the button is tapped
 let installedNow = false;
 
 function isInstalled() {
@@ -625,7 +678,7 @@ export async function doInstall() {
 
 // ================================================================ files & sharing
 /** Share the file (phone share sheet) or download it. Returns 'shared', 'downloaded' or false if cancelled. */
-export async function shareOrDownload(filename, text, type) {
+export async function shareOrDownload(filename: string, text: string, type: string) {
   const blob = new Blob([text], { type });
   try {
     const file = new File([blob], filename, { type });
@@ -634,7 +687,7 @@ export async function shareOrDownload(filename, text, type) {
       return 'shared';
     }
   } catch (e) {
-    if (e && e.name === 'AbortError') return false;
+    if (e && (e as Error).name === 'AbortError') return false;
   }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -647,12 +700,12 @@ export async function shareOrDownload(filename, text, type) {
   return 'downloaded';
 }
 
-export async function doRestore(file) {
+export async function doRestore(file: File) {
   let parsed;
   try {
     parsed = L.normalizeState(JSON.parse(await file.text()));
   } catch (e) {
-    showToast('打不开这个文件：' + (e.message || '格式不对'), { ms: 6000 });
+    showToast('打不开这个文件：' + ((e as Error).message || '格式不对'), { ms: 6000 });
     return;
   }
   // The restored records become the latest copy on the server too.
@@ -660,7 +713,7 @@ export async function doRestore(file) {
 }
 
 /** Ask, then replace the records with a checked backup. Returns true if restored. */
-async function confirmAndRestore(parsed, what) {
+async function confirmAndRestore(parsed: { state: State; dropped: number }, what: string) {
   const n = parsed.state;
   const yes = await confirmBox({
     title: `用${what}取代现在的记录？`,
@@ -690,7 +743,7 @@ async function confirmAndRestore(parsed, what) {
  * kept that note, the next sync would read every record the restored book lacks as "deleted
  * here" and delete it from the family's book for everyone. Signing in again asks first.
  */
-function adopt(state) {
+function adopt(state: State) {
   leaveFamily();
   S.state = state;
   S.state.settings.lastBackupAt = Date.now();
@@ -708,12 +761,12 @@ function adopt(state) {
 // reading backups is never involved.
 const SETUP_CODE = /(?:^|[^0-9a-f])([0-9a-f]{32})(?![0-9a-f])/i;
 /** The setup code in what was typed or pasted: the code by itself, or the whole link. */
-export function setupCodeFrom(text) {
+export function setupCodeFrom(text: unknown): string | null {
   const m = SETUP_CODE.exec(String(text == null ? '' : text).trim());
   return m ? m[1].toLowerCase() : null;
 }
 
-async function fetchBook(code) {
+async function fetchBook(code: string) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 30000);
   let res;
@@ -742,7 +795,7 @@ let loadingBook = false;
  * records is left alone unless `replace` is set, and then it asks first, like restoring a file.
  * Returns true if the records were loaded.
  */
-async function loadBook(code, { replace = false } = {}) {
+async function loadBook(code: string, { replace = false } = {}) {
   if (loadingBook) return false;
   loadingBook = true;
   try {
@@ -751,7 +804,7 @@ async function loadBook(code, { replace = false } = {}) {
     try {
       parsed = await fetchBook(code);
     } catch (e) {
-      showToast('没能载入记录：' + e.message, { ms: 8000 });
+      showToast('没能载入记录：' + (e as Error).message, { ms: 8000 });
       return false;
     }
     // Looked at again after the wait: she may have started a book of her own meanwhile.
@@ -777,7 +830,7 @@ async function loadBook(code, { replace = false } = {}) {
 // #/public shows the funds' money totals that the family published on the backup server, for
 // anyone. It has no names in it (the server makes it that way) and never reads this phone's records.
 /** The published accounts, or throws with a message to show. */
-export async function fetchPublicAccounts() {
+export async function fetchPublicAccounts(): Promise<PublicSummary> {
   let res;
   try {
     res = await fetch(`${SERVER}/public`, { cache: 'no-store' });
@@ -792,7 +845,7 @@ export async function fetchPublicAccounts() {
 }
 
 /** From 恢复记录, for the family: load the book under the code or link they pasted. */
-export async function loadBookFromText(text) {
+export async function loadBookFromText(text: unknown) {
   const code = setupCodeFrom(text);
   if (!code) {
     showToast('请贴上家人给的设置链接或设置码。', { ms: 6000 });
@@ -815,13 +868,13 @@ function takeSetupLink() {
   else loadBook(code);
 }
 
-export async function shareText(text) {
+export async function shareText(text: string) {
   if (navigator.share) {
     try {
       await navigator.share({ text });
       return;
     } catch (e) {
-      if (e && e.name === 'AbortError') return;
+      if (e && (e as Error).name === 'AbortError') return;
     }
   }
   try {
@@ -861,7 +914,7 @@ export function init() {
   phone.android = /Android/.test(UA);
   phone.inAppBrowser = /FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|WhatsApp|; wv\)/.test(UA);
   phone.iosOtherBrowser = /CriOS|FxiOS|EdgiOS|OPiOS|OPT\//.test(UA);
-  installPrompt = window.__installPrompt || null; // caught in app/layout.jsx if it came early
+  installPrompt = window.__installPrompt || null; // caught in app/layout.tsx if it came early
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     installPrompt = e;

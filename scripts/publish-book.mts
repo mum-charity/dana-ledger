@@ -19,7 +19,7 @@
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import L from '../lib/model.js';
+import L from '../lib/model.ts';
 
 const args = process.argv.slice(2);
 const send = args.includes('--send');

@@ -1,9 +1,9 @@
 // 善款簿 is exported as plain static files (out/), so it runs from Cloudflare's static hosting
 // and keeps working offline. There is no server code: backups go to the family's own server.
-const pkg = require('./package.json');
+import type { NextConfig } from 'next';
+import pkg from './package.json';
 
-/** @type {import('next').NextConfig} */
-module.exports = {
+const config: NextConfig = {
   output: 'export',
   // Set BASE_PATH=/dana-ledger when building for an address like https://<owner>.github.io/dana-ledger/.
   basePath: process.env.BASE_PATH || '',
@@ -18,3 +18,5 @@ module.exports = {
     NEXT_PUBLIC_GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '470400270105-s30gbijnga4l4681ul6tbsqb724ohiv5.apps.googleusercontent.com',
   },
 };
+
+export default config;

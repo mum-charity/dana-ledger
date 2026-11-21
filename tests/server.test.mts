@@ -9,7 +9,7 @@ import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import L from '../lib/model.js';
+import L from '../lib/model.ts';
 import { createBackupService, type BackupResponse, type BackupService, type BackupServiceOptions } from '../server/backup-core.ts';
 import { createDiskStore } from '../server/store-disk.ts';
 import { createS3Store, type S3Commands } from '../server/aws/store-s3.ts';

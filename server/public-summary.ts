@@ -9,7 +9,7 @@
  * The output is built field by field from numbers and the family's own labels, never by copying
  * an object from the book, so a field added to the book later cannot slip into it.
  */
-import L from '../lib/model.js';
+import L from '../lib/model.ts';
 import { httpError } from './backup-core.ts';
 
 export const PUBLIC_APP = 'dana-ledger-public';

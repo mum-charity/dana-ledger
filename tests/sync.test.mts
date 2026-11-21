@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import L from '../lib/model.js';
+import L from '../lib/model.ts';
 import { hashesOf, merge, sameHashes, syncOnce, type SyncDeps, type SyncMeta, type SyncResult } from '../shared/sync.ts';
 import { createBackupService, type Store } from '../server/backup-core.ts';
 

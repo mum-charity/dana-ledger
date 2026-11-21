@@ -152,7 +152,7 @@ Resources:
           QUOTA_BYTES: !Ref QuotaBytes
           GOOGLE_CLIENT_ID: !Ref GoogleClientId
           FAMILY_EMAILS: !Ref FamilyEmails
-      # A stand-in until deploy.sh uploads the real code (server/ and lib/model.js).
+      # A stand-in until deploy.sh uploads the real code (server/ and lib/model.ts).
       Code:
         ZipFile: |
           exports.handler = async () => ({ statusCode: 503, body: '{"error":"code not uploaded yet: run server/aws/deploy.sh"}' });

@@ -22,7 +22,7 @@ say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 die() { printf '\nStopped: %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "run it with sudo: sudo bash $0"
-[ -f "$SRC/lib/model.js" ] && [ -f "$SRC/server/backup-server.ts" ] || die "lib/model.js and server/ aren't in $SRC; run it from a copy of the repo"
+[ -f "$SRC/lib/model.ts" ] && [ -f "$SRC/server/backup-server.ts" ] || die "lib/model.ts and server/ aren't in $SRC; run it from a copy of the repo"
 # The server is written in TypeScript. What runs here is the JavaScript built from it.
 BUILT="$SRC/server/dist"
 [ -f "$BUILT/server/backup-server.js" ] && [ "$BUILT/server/backup-server.js" -nt "$SRC/server/backup-server.ts" ] && [ "$BUILT/server/backup-core.js" -nt "$SRC/server/backup-core.ts" ] && [ "$BUILT/server/store-disk.js" -nt "$SRC/server/store-disk.ts" ]   || die "the server isn't built, or was changed since. As yourself, not root, run: npm install && npm run build:server"

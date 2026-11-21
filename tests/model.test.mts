@@ -1,7 +1,7 @@
-// Run with: node --test tests/
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const L = require('../lib/model.js');
+// Run with: npm test
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import L, { type OfferingInput, type State } from '../lib/model.ts';
 
 function setup() {
   const s = L.emptyState();
@@ -28,7 +28,7 @@ test('parseAmount handles what people actually type', () => {
   assert.equal(L.parseAmount('-5'), null);
   assert.equal(L.parseAmount('1.234'), null);
   // classic float trap: 0.1 + 0.2
-  assert.equal(L.parseAmount('0.1') + L.parseAmount('0.2'), L.parseAmount('0.3'));
+  assert.equal(L.parseAmount('0.1')! + L.parseAmount('0.2')!, L.parseAmount('0.3'));
 });
 
 test('formatting', () => {
@@ -77,7 +77,7 @@ test('hand-checked scenario: grid totals and running balance', () => {
   assert.equal(g.totalReceived, 5900);
   assert.equal(g.totalPaidOut, 4000);
 
-  const row = g.rows.find((r) => r.member.id === b.id);
+  const row = g.rows.find((r) => r.member.id === b.id)!;
   assert.equal(row.cells[2].active, false); // March: not started
   assert.equal(row.cells[3].active, true);
   assert.equal(row.cells[8].active, false); // September: stopped
@@ -109,7 +109,7 @@ test('prepay fills the next unpaid months and skips paid ones', () => {
   assert.deepEqual(made.map((r) => r.month).slice(0, 3), ['2026-01', '2026-03', '2026-04']);
   assert.equal(made[11].month, '2027-01');
   // February keeps its original payment
-  assert.equal(L.receiptOf(s, a.id, '2026-02').amount, 1000);
+  assert.equal(L.receiptOf(s, a.id, '2026-02')!.amount, 1000);
   // Cash on hand counts the prepayment now; the month balance only counts months up to then.
   assert.equal(L.cashOnHand(s, fund.id), 5000 + 1000 + 12 * 2000);
   assert.equal(L.prepaidAfter(s, fund.id, '2026-01'), 1000 + 11 * 2000);
@@ -218,7 +218,7 @@ test('share text summarises the month', () => {
 });
 
 // ---------------------------------------------------------------- offerings (供养)
-function lunch(s, over = {}) {
+function lunch(s: State, over: Partial<OfferingInput> = {}) {
   return L.addOffering(s, {
     date: '2026-11-14',
     recipient: '法悦林僧团午餐',
@@ -255,7 +255,7 @@ test('offerings list newest first, and can be changed, deleted and put back', ()
   const b = lunch(s, { date: '2026-11-15' });
   assert.deepEqual(L.offeringsSorted(s).map((o) => o.date), ['2026-11-15', '2026-11-13']);
   L.updateOffering(s, a.id, { date: '2026-11-17', recipient: 'General Fund', lines: [{ name: '吴晶晶', amount: 3000 }] });
-  assert.equal(L.getOffering(s, a.id).recipient, 'General Fund');
+  assert.equal(L.getOffering(s, a.id)!.recipient, 'General Fund');
   assert.equal(L.offeringsSorted(s)[0].id, a.id);
   const removed = L.removeOffering(s, b.id);
   assert.equal(s.offerings.length, 1);

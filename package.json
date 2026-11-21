@@ -5,15 +5,18 @@
   "description": "善款簿 — offline monthly donation ledger (PWA)",
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node scripts/build.js",
-    "test": "npm run typecheck && node --test tests/model.test.js tests/server.test.mts tests/sync.test.mts",
-    "test:e2e": "npm run build && node tests/e2e.js",
+    "build": "next build && node scripts/build.mts",
+    "test": "npm run typecheck && node --test tests/model.test.mts tests/server.test.mts tests/sync.test.mts",
+    "test:e2e": "npm run build && node tests/e2e.mts",
+    "test:upgrade": "npm run build && node tests/upgrade.mts",
     "deploy": "npm run build && npx -y wrangler@4.158.0 deploy",
-    "typecheck": "tsc -p server/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p server/tsconfig.json",
     "build:server": "node scripts/build-server.mts"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "playwright-core": "1.55.0",
     "typescript": "^5.9.3"
   },

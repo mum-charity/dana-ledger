@@ -17,7 +17,7 @@
  *
  * This file has no screen and no storage of its own, so it runs in the app and in the tests.
  */
-import L from '../lib/model.js';
+import L, { type Receipt, type State } from '../lib/model.ts';
 
 /** Fingerprint of every record at the last sync, by kind and id: { "r:abc123": "9x8k2…" }. */
 export type Hashes = Record<string, string>;
@@ -40,7 +40,7 @@ const KINDS = [
 type Kind = (typeof KINDS)[number][1];
 
 /** The records as the app saves them: the same fields in the same shape on every device. */
-function tidy(state: L.State): L.State {
+function tidy(state: State): State {
   const { state: clean, dropped } = L.normalizeState(JSON.parse(JSON.stringify(state)));
   if (dropped) throw new Error(`${dropped} records in this book are not valid`);
   return clean;
@@ -70,14 +70,14 @@ function fingerprint(text: string): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
-function hashesOfTidy(state: L.State): Hashes {
+function hashesOfTidy(state: State): Hashes {
   const out: Hashes = {};
   for (const [letter, kind] of KINDS) for (const record of state[kind] as AnyRecord[]) out[`${letter}:${record.id}`] = fingerprint(stable(record));
   return out;
 }
 
 /** The fingerprint of every record in a book. Settings are not part of it: they belong to each device. */
-export function hashesOf(state: L.State): Hashes {
+export function hashesOf(state: State): Hashes {
   return hashesOfTidy(tidy(state));
 }
 
@@ -88,7 +88,7 @@ export function sameHashes(a: Hashes, b: Hashes): boolean {
 
 export interface Merged {
   /** The combined book, to become this device's records. */
-  state: L.State;
+  state: State;
   hashes: Hashes;
   /** The combined book differs from what this device had: show it. */
   changedHere: boolean;
@@ -101,7 +101,7 @@ export interface Merged {
  * from the last sync; an empty `base` means nothing is known to have been deleted, so every
  * record on either side is kept.
  */
-export function merge(localState: L.State, remoteState: L.State, base: Hashes): Merged {
+export function merge(localState: State, remoteState: State, base: Hashes): Merged {
   const local = tidy(localState);
   const remote = tidy(remoteState);
   const hLocal = hashesOfTidy(local);
@@ -145,7 +145,7 @@ export function merge(localState: L.State, remoteState: L.State, base: Hashes): 
   out.members = out.members.filter((m) => funds.has(m.fundId));
   out.payouts = out.payouts.filter((p) => funds.has(p.fundId));
   const people = new Set(out.members.map((m) => m.id));
-  const byMonth = new Map<string, L.Receipt>();
+  const byMonth = new Map<string, Receipt>();
   for (const r of out.receipts) {
     if (!people.has(r.memberId)) continue;
     const key = `${r.memberId}|${r.month}`;
@@ -170,13 +170,13 @@ export interface SyncDeps {
   /** The family session from signing in, or null. */
   session(): string | null;
   /** This device's records, as they are right now. */
-  local(): L.State;
+  local(): State;
   /** Make `state` this device's records. `replacing` is true when its own, unrelated records are being set aside. */
-  apply(state: L.State, replacing: boolean): void;
+  apply(state: State, replacing: boolean): void;
   meta(): SyncMeta | null;
   setMeta(meta: SyncMeta): void;
   /** This device has records of its own that were never synced. Ask before setting them aside for the family's. */
-  confirmReplace(theirs: L.State): Promise<boolean>;
+  confirmReplace(theirs: State): Promise<boolean>;
   fetch: typeof fetch;
 }
 
@@ -212,7 +212,7 @@ export async function syncOnce(deps: SyncDeps): Promise<SyncResult> {
 
     // From here to the next request nothing waits, so the records cannot change under our feet.
     let version: number;
-    let toSend: L.State | null = null;
+    let toSend: State | null = null;
     if (res.status === 404) {
       // The family has no book yet. A device with records starts it; an empty one has nothing to give.
       await res.text();
