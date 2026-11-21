@@ -8,7 +8,7 @@
  * first time it runs, and sends its records whenever they change. Anyone can send a backup, but
  * nobody can read one back without the key, so the records stay private.
  *
- *   PUT /backup/<device>          store a backup from one phone (no key; checked with model.js)
+ *   PUT /backup/<device>          store a backup from one phone (no key; checked with model.ts)
  *   GET /backups                  the phones that have backed up, with counts      (key needed)
  *   GET /backups/<device>/latest  that phone's newest backup, to restore a phone   (key needed)
  *   GET /health                   {"ok":true}
@@ -47,7 +47,7 @@
  * Where the files go is the `Store` below (store-disk.ts or aws/store-s3.ts).
  */
 import crypto from 'node:crypto';
-import L from '../lib/model.js';
+import L, { type State } from '../lib/model.ts';
 import { publicSummary } from './public-summary.ts';
 import { createSessions, googleKeys, SignInRefused, verifyGoogleToken, type KeySource } from './auth.ts';
 
@@ -142,7 +142,7 @@ export const DEVICE = /^[0-9a-f]{32}$/;
 const sha256 = (s: string): Buffer => crypto.createHash('sha256').update(s).digest();
 
 /** A fingerprint of the records themselves, ignoring the backup-reminder counters. */
-function contentHash(state: L.State): string {
+function contentHash(state: State): string {
   const { lastBackupAt, changesSinceBackup, ...settings } = state.settings;
   return sha256(JSON.stringify({ ...state, settings })).toString('hex');
 }
@@ -308,7 +308,7 @@ export function createBackupService({
     const devices = [];
     for (const d of await store.list()) {
       if (!DEVICE.test(d.device)) continue;
-      let state: L.State;
+      let state: State;
       try {
         state = L.normalizeState(JSON.parse((await store.getLatest(d.device)) ?? '')).state;
       } catch (_) {

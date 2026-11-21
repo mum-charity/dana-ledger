@@ -33,7 +33,7 @@ To go back to 1.5.0: `npx wrangler@4.158.0 rollback cff2a828-edf0-41cd-81eb-416f
 
 What 2.0.0 changes:
 
-- The screens are React components in `components/`. The money rules in `lib/model.js` are unchanged, and so is everything saved on the phone, so her records and her folder on the backup server carry over. `tests/upgrade.js` checks this.
+- The screens are React components in `components/`. The money rules in `lib/model.ts` are unchanged, and so is everything saved on the phone, so her records and her folder on the backup server carry over. `tests/upgrade.mts` checks this.
 - On a phone it looks the same as 1.6.0. On a wide screen (960px and up) the funds are listed down the left side, the month page has two columns, and sheets open as dialogs in the middle.
 - It is still only static files with no server code of its own. Backups still go to the family's backup server.
 - It now needs a build step (`npm run build`). The copy that used to be on GitHub Pages was 1.1.1 served straight from `main`; GitHub Pages was turned off on 19 Nov 2026, so mum.franklee.asia is the only address.
@@ -72,14 +72,16 @@ npx http-server -c-1 out   # serves the built app, with offline mode, at http://
 **Trying things by hand on your own computer is safe.** At `localhost` the app keeps records in that browser only and never sends them to the backup server. At any other address, anything you enter is sent to the real backup server as a new phone's backup.
 
 ```sh
-npm test                                   # type-checks the backup server, then unit tests for the money/balance rules and the server
+npm test                                   # type-checks the app and the backup server, then unit tests for the money/balance rules and the server
 npm run test:e2e                           # builds, then drives the real app on a phone-sized screen
-npm run build && node tests/upgrade.js     # a phone on 1.6.0 moves to this build and keeps its records
+npm run test:upgrade                       # builds; a phone on 1.6.0 moves to this build and keeps its records
 ```
 
 The browser tests use Edge. Put `E2E_CHANNEL=chrome` in front to use Chrome. They send backups to their own stand-in server, never the real one.
 
-The end-to-end test fixes the date to 6 Nov 2026. It creates a fund, ticks people as paid, prepays a year, records a payout, and checks the year table's balances against hand-worked numbers. It also checks offline use, automatic backup, wipe-and-restore, the CSV export and the desktop layout. Screenshots go to `.e2e-out/`.
+The end-to-end test fixes the date to 6 Nov 2026. It creates a fund, ticks people as paid, prepays a year, records a payout, and checks the year table's balances against hand-worked numbers. It also checks offline use, automatic backup, wipe-and-restore, the CSV export and the desktop layout. Then, on a second small book, it goes through the rest of the forms: what each one refuses, changing and deleting a receipt, a hand-over, a person, a fund and an offering, 撤销, the month note, sharing, printing, the currency, and a restore file that is not a backup. Screenshots go to `.e2e-out/`.
+
+Everything is TypeScript: the app, the data rules, the backup server, the scripts and the tests. Node 24 runs the `.ts` and `.mts` files as they are, with no build step. The one JavaScript file is `scripts/sw.template.js`, which is copied into `out/sw.js` for the browser as it is.
 
 ## Deploy (Cloudflare)
 
@@ -102,17 +104,18 @@ npm run deploy               # builds the app into out/, then uploads it
 
 | File | What it does |
 | --- | --- |
-| `app/layout.jsx`, `app/page.jsx` | Page shell and PWA meta tags |
+| `app/layout.tsx`, `app/page.tsx` | Page shell and PWA meta tags |
 | `app/globals.css` | Styles: large text, dark mode, the desktop layout, and the print layout for the year table |
-| `lib/model.js` | All data rules (money in integer cents, months as `YYYY-MM`). Has no screen code and is unit-tested in Node |
-| `components/store.js` | Saving on the phone, automatic backup, routes, and which sheet or toast is open |
-| `components/LedgerApp.jsx` | The screens |
-| `components/sheets.jsx` | The forms that slide up (dialogs on desktop) |
-| `scripts/sw.template.js`, `scripts/build.js` | Offline cache. The build fills in the file list and writes `out/sw.js` |
+| `lib/model.ts`, `lib/package.json` | All data rules (money in integer cents, months as `YYYY-MM`) and the types of the records. Has no screen code and is unit-tested in Node. Used by the app, the server, the scripts and the tests |
+| `components/store.tsx` | Saving on the phone, automatic backup, routes, and which sheet or toast is open |
+| `components/LedgerApp.tsx` | The screens |
+| `components/sheets.tsx` | The forms that slide up (dialogs on desktop) |
+| `scripts/sw.template.js`, `scripts/build.mts` | Offline cache. The build fills in the file list and writes `out/sw.js`. The template stays JavaScript: the browser runs it as written |
+| `tsconfig.json`, `shared/globals.d.ts` | Type-checking for the app (`app/`, `components/`, `lib/`, `shared/`), and what the app looks for on `window` |
 | `public/manifest.webmanifest`, `public/icons/` | Home-screen install |
 | `server/backup-core.ts` | The backup server's rules: what it accepts, refuses and keeps. Shared by the Pi and AWS versions. Not part of the app's build |
 | `server/backup-server.ts`, `server/store-disk.ts`, `server/pi-setup.sh`, `server/dana-backup.*` | The version that runs on the family's Raspberry Pi and keeps files on its disk, with its systemd service and installer |
-| `server/tsconfig.json`, `server/package.json`, `scripts/build-server.mts`, `lib/model.d.ts` | The server is TypeScript on Node.js. Node 24 runs it as it is; `npm run build:server` turns it into JavaScript in `server/dist/` for AWS Lambda and the Pi. `model.d.ts` describes `lib/model.js`, which is still JavaScript, as are the screens |
+| `server/tsconfig.json`, `server/package.json`, `scripts/build-server.mts` | The server is TypeScript on Node.js. Node 24 runs it as it is; `npm run build:server` turns it, and the data rules it uses, into JavaScript in `server/dist/` for AWS Lambda and the Pi. This tsconfig also type-checks the scripts and the tests |
 | `scripts/publish-book.mts` | For the family: publishes a book on the backup server and prints its setup link |
 | `server/auth.ts` | Family sign-in: checks Google's ID token and hands out the server's own session |
 | `shared/sync.ts` | The family's shared book: how two devices' records are combined, and the back-and-forth with the server. TypeScript, used by the app and the tests |
@@ -121,10 +124,10 @@ npm run deploy               # builds the app into out/, then uploads it
 | `server/public-summary.ts`, `scripts/publish-public.mts` | The public accounts: money totals only, made from the book on the server; and the script that publishes them |
 | `server/aws/` | The version for AWS, keeping backups in an S3 bucket. See [server/aws/README.md](server/aws/README.md) |
 | `tests/server.test.mts` | Tests for the backup server, run against both the disk and S3 versions |
-| `tests/model.test.js` | Unit tests for balances, prepayments, import and CSV |
-| `tests/e2e.js` | End-to-end test on a phone-sized screen, plus the desktop layout |
-| `tests/upgrade.js` | Moving a phone from 1.6.0 to this build |
-| `next.config.js`, `wrangler.jsonc` | Build settings (static export) and Cloudflare deploy settings |
+| `tests/model.test.mts` | Unit tests for balances, prepayments, import and CSV |
+| `tests/e2e.mts` | End-to-end test on a phone-sized screen, plus the desktop layout |
+| `tests/upgrade.mts` | Moving a phone from 1.6.0 to this build |
+| `next.config.ts`, `wrangler.jsonc` | Build settings (static export) and Cloudflare deploy settings |
 | `ios/` | The iPhone app, in Swift. See [iPhone app](#iphone-app) |
 
 ## Putting mum's book on a new phone
@@ -166,7 +169,7 @@ To change who is on the list, deploy the server again with the new list (it repl
 FAMILY_EMAILS='one@gmail.com,two@gmail.com' bash server/aws/deploy.sh
 ```
 
-The Google sign-in client belongs to the Google Cloud project `dana-ledger`. It is in "testing", which limits sign-in to the test users listed there (Google Auth Platform → Audience), so a new family member is added in both places. Its client ID is in `next.config.js`; it is not a secret. The app sends the browser to Google and back to `https://mum.franklee.asia/` only, so sign-in does not work on `localhost`.
+The Google sign-in client belongs to the Google Cloud project `dana-ledger`. It is in "testing", which limits sign-in to the test users listed there (Google Auth Platform → Audience), so a new family member is added in both places. Its client ID is in `next.config.ts`; it is not a secret. The app sends the browser to Google and back to `https://mum.franklee.asia/` only, so sign-in does not work on `localhost`.
 
 To start the family's book from a file (only when there is none yet):
 
@@ -189,7 +192,7 @@ BACKUP_TOKEN=<the family key> node scripts/publish-public.mts private/book.json 
 
 ## iPhone app
 
-`ios/` is an iPhone app written in Swift, with no packages (no Capacitor, CocoaPods or npm). It is one web view that opens https://mum.franklee.asia/. Nothing from `out/` is copied into it, so every `npm run deploy` updates the iPhone app too, and the money rules stay in one place (`lib/model.js`).
+`ios/` is an iPhone app written in Swift, with no packages (no Capacitor, CocoaPods or npm). It is one web view that opens https://mum.franklee.asia/. Nothing from `out/` is copied into it, so every `npm run deploy` updates the iPhone app too, and the money rules stay in one place (`lib/model.ts`).
 
 What the app does that a plain web view would not:
 

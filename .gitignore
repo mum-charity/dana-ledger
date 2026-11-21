@@ -4,6 +4,7 @@ node_modules/
 .next/
 out/
 next-env.d.ts
+tsconfig.tsbuildinfo
 
 # Scans of the paper book: real names, phone numbers and bank details. Never commit.
 *.pdf

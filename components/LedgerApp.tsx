@@ -1,11 +1,14 @@
 'use client';
-/* 善款簿 — the screens. The records and everything behind them are in store.js. */
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+/* 善款簿 — the screens. The records and everything behind them are in store.tsx. */
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import type { Fund, Member, Offering, Settings } from '../lib/model.ts';
+import type { PublicSummary } from '../server/public-summary.ts';
 import {
   S, L, APP_VERSION, subscribe, getVersion, init, route, nav, goBack, mutate, money, openSheet,
   closeConfirm, confirmBox, showToast, toastAction, serverStatus, backupWarning, canOfferInstall, doInstall,
   shareOrDownload, shareText, doRestore, loadBookFromText, setFontSize, setCurrency, fetchPublicAccounts,
   account, canSignIn, hasUnsynced, signInWithGoogle, signOut, syncNow,
+  type ConfirmOptions, type Route,
 } from './store';
 import { SHEETS } from './sheets';
 
@@ -40,7 +43,7 @@ export default function LedgerApp() {
         {r && r.name !== 'public' && <Sidebar r={r} />}
       </div>
       <div id="sheet" className={S.sheetShown ? 'open' : undefined}>
-        {Sheet && <Sheet key={S.sheet.key} {...S.sheet.props} />}
+        {Sheet && <Sheet key={S.sheet!.key} {...S.sheet!.props} />}
       </div>
       <div id="confirm" className={S.confirm ? 'open' : undefined}>
         {S.confirm && <ConfirmBox {...S.confirm} />}
@@ -68,7 +71,7 @@ export default function LedgerApp() {
   );
 }
 
-function ConfirmBox({ title, message, ok, cancel, danger }) {
+function ConfirmBox({ title, message, ok, cancel, danger }: Required<ConfirmOptions>) {
   return (
     <>
       <div className="sheet-backdrop" data-action="confirm-no" onClick={() => closeConfirm(false)} />
@@ -95,22 +98,22 @@ function SyncLine() {
   const a = account();
   if (!a) return null;
   const y = S.sync;
-  const time = (t) => new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  const time = (t: number) => new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   let text;
   if (y.busy) text = '正在和家里的记录同步…';
   else if (y.ok === false) text = `⚠ 还没同步（${y.error}）。有网络时会自动再试。`;
   else if (hasUnsynced()) text = '有更改还没传到家里的记录，马上会自动传。';
-  else if (y.ok) text = `已和家里的记录同步 · ${time(y.at)}`;
+  else if (y.ok) text = `已和家里的记录同步 · ${time(y.at!)}`;
   else text = '已登入，和家里的记录同步。';
   return <p className="hint sync-line" data-role="sync-line" data-sync={y.busy ? 'busy' : y.ok === false ? 'error' : hasUnsynced() ? 'pending' : 'ok'}>{text}</p>;
 }
 
-const go = (to) => () => nav(to);
-const goReplace = (to) => () => nav(to, true);
+const go = (to: string) => () => nav(to);
+const goReplace = (to: string) => () => nav(to, true);
 
 // A drawn chevron, not the ‹ › characters: each font puts those at a different height
 // (Microsoft YaHei draws them ~7px below the middle of the round button).
-function Chevron({ dir }) {
+function Chevron({ dir }: { dir: 'left' | 'right' }) {
   return (
     <svg className="chevron" viewBox="0 0 24 24" aria-hidden="true">
       <path d={dir === 'left' ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'} />
@@ -118,7 +121,7 @@ function Chevron({ dir }) {
   );
 }
 
-function Topbar({ title, back = false, right = null }) {
+function Topbar({ title, back = false, right = null }: { title: string; back?: boolean; right?: ReactNode }) {
   return (
     <header className="topbar">
       {back ? <button className="topbar-btn" data-action="back" onClick={goBack}><span aria-hidden="true">‹</span> 返回</button> : <span />}
@@ -128,7 +131,7 @@ function Topbar({ title, back = false, right = null }) {
   );
 }
 
-function FundHeader({ fund, tab, month }) {
+function FundHeader({ fund, tab, month }: { fund: Fund; tab: 'month' | 'year' | 'people'; month?: string }) {
   const m = month || L.currentMonth();
   const tabs = [
     ['month', '每月', `#/f/${fund.id}/m/${m}`],
@@ -152,7 +155,7 @@ function FundHeader({ fund, tab, month }) {
  * screen can jump between them without going back to the home page. It comes after the page in
  * the markup so that on a phone the page's own buttons are still the first ones found.
  */
-function Sidebar({ r }) {
+function Sidebar({ r }: { r: Route }) {
   const month = L.currentMonth();
   return (
     <aside className="sidebar" aria-label="项目">
@@ -173,7 +176,7 @@ function Sidebar({ r }) {
   );
 }
 
-const Progress = ({ pct }) => <span className="progress" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span>;
+const Progress = ({ pct }: { pct: number }) => <span className="progress" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span>;
 
 // ================================================================ home
 function HomeView() {
@@ -246,7 +249,7 @@ function HomeView() {
 }
 
 /** The way into 供养记录 from the home page, with this month's count and total. */
-function OfferingsCard({ month }) {
+function OfferingsCard({ month }: { month: string }) {
   const mine = S.state.offerings.filter((o) => o.date.slice(0, 7) === month);
   const total = mine.reduce((t, o) => t + L.offeringTotal(o), 0);
   return (
@@ -260,7 +263,7 @@ function OfferingsCard({ month }) {
 // ================================================================ offerings (供养)
 function OfferingsView() {
   const list = L.offeringsSorted(S.state);
-  const months = [];
+  const months: { month: string; items: Offering[] }[] = [];
   for (const o of list) {
     const mo = o.date.slice(0, 7);
     if (!months.length || months[months.length - 1].month !== mo) months.push({ month: mo, items: [] });
@@ -299,7 +302,7 @@ function OfferingsView() {
 }
 
 // ================================================================ month page
-function quickPay(memberId, month) {
+function quickPay(memberId: string, month: string) {
   const m = L.getMember(S.state, memberId);
   if (!m || !m.pledge) return openSheet('receipt', { memberId, month });
   mutate((s) => L.setReceipt(s, { memberId, month, amount: m.pledge, date: L.todayISO() }));
@@ -310,10 +313,10 @@ function quickPay(memberId, month) {
 }
 
 /** The people a month's 全部打勾 would tick: still 未收, with a fixed monthly amount. */
-const tickAllDue = (s) => s.unpaid.filter((m) => m.pledge);
+const tickAllDue = (s: ReturnType<typeof L.monthSummary>) => s.unpaid.filter((m) => m.pledge);
 
 /** Tick all of them at their monthly amount, received today, once she says yes. One 撤销 takes them all back. */
-async function tickAll(fundId, month) {
+async function tickAll(fundId: string, month: string) {
   const s = L.monthSummary(S.state, fundId, month);
   const due = tickAllDue(s);
   const open = s.unpaid.length - due.length;
@@ -334,7 +337,7 @@ async function tickAll(fundId, month) {
   });
 }
 
-function PersonRow({ m, month, no }) {
+function PersonRow({ m, month, no }: { m: Member; month: string; no?: number }) {
   const r = L.receiptOf(S.state, m.id, month);
   const openReceipt = () => openSheet('receipt', { memberId: m.id, month });
   const sub = r
@@ -373,7 +376,7 @@ function PersonRow({ m, month, no }) {
   );
 }
 
-function MonthView({ fund, month }) {
+function MonthView({ fund, month }: { fund: Fund; month: string }) {
   const state = S.state;
   const s = L.monthSummary(state, fund.id, month);
   const numbers = new Map(L.fundMembers(state, fund.id).map((m, i) => [m.id, i + 1]));
@@ -382,7 +385,7 @@ function MonthView({ fund, month }) {
   const isNow = month === L.currentMonth();
   const prepaid = L.prepaidAfter(state, fund.id, month);
   const note = (fund.monthNotes && fund.monthNotes[month]) || '';
-  const to = (m) => `#/f/${fund.id}/m/${m}`;
+  const to = (m: string) => `#/f/${fund.id}/m/${m}`;
 
   return (
     <>
@@ -468,7 +471,7 @@ function MonthView({ fund, month }) {
 }
 
 // ================================================================ year table
-function YearView({ fund, year }) {
+function YearView({ fund, year }: { fund: Fund; year: number }) {
   const state = S.state;
   const g = L.yearGrid(state, fund.id, year);
   const now = L.currentMonth();
@@ -581,7 +584,7 @@ function YearView({ fund, year }) {
 }
 
 // ================================================================ people list
-function PeopleView({ fund }) {
+function PeopleView({ fund }: { fund: Fund }) {
   const list = L.fundMembers(S.state, fund.id);
   const now = L.currentMonth();
   return (
@@ -629,9 +632,9 @@ function PeopleView({ fund }) {
 // ================================================================ settings
 function SettingsView() {
   const st = S.state.settings;
-  const sizes = [['normal', '标准'], ['large', '大'], ['xlarge', '特大']];
+  const sizes: [Settings['fontSize'], string][] = [['normal', '标准'], ['large', '大'], ['xlarge', '特大']];
   // Five quick taps on the version line open 恢复记录.
-  const taps = useRef({ n: 0, timer: null });
+  const taps = useRef<{ n: number; timer: ReturnType<typeof setTimeout> | undefined }>({ n: 0, timer: undefined });
   const aboutTap = () => {
     const t = taps.current;
     clearTimeout(t.timer);
@@ -659,7 +662,7 @@ function SettingsView() {
             className="inline-form"
             onSubmit={(e) => {
               e.preventDefault();
-              setCurrency(e.currentTarget.elements.namedItem('currency').value);
+              setCurrency((e.currentTarget.elements.namedItem('currency') as HTMLInputElement).value);
             }}
           >
             <input className="input" name="currency" defaultValue={st.currency} maxLength={8} aria-label="货币符号" />
@@ -670,7 +673,7 @@ function SettingsView() {
           <h3 className="card-title">家人登入</h3>
           {account() ? (
             <>
-              <p>{`已登入：${account().email}`}</p>
+              <p>{`已登入：${account()!.email}`}</p>
               <SyncLine />
               <div className="btn-row">
                 <button className="btn btn-secondary" data-action="sync-now" onClick={() => syncNow()}>现在同步</button>
@@ -698,8 +701,8 @@ function SettingsView() {
  * published it on the backup server. No names: the server sends only totals. This page never
  * reads or changes the records on this phone.
  */
-function PublicView({ landing = false }) {
-  const [state, setState] = useState({ loading: true, data: null, error: null });
+function PublicView({ landing = false }: { landing?: boolean }) {
+  const [state, setState] = useState<{ loading: boolean; data: PublicSummary | null; error: string | null }>({ loading: true, data: null, error: null });
   useEffect(() => {
     let live = true;
     fetchPublicAccounts().then(
@@ -709,9 +712,9 @@ function PublicView({ landing = false }) {
     return () => { live = false; };
   }, []);
   const { loading, data, error } = state;
-  const rm = (c) => L.fmtMoney(c, data ? data.currency : 'RM');
-  const shortMonth = (m) => `${+m.slice(5, 7)}月`;
-  const when = (iso) => new Date(iso).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+  const rm = (c: number) => L.fmtMoney(c, data ? data.currency : 'RM');
+  const shortMonth = (m: string) => `${+m.slice(5, 7)}月`;
+  const when = (iso: string) => new Date(iso).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return (
     <>
@@ -785,13 +788,13 @@ function PublicView({ landing = false }) {
 function RestoreView() {
   const state = S.state;
   const counts = `${state.funds.length} 个项目 · ${state.members.length} 人 · ${state.receipts.length} 笔收款 · ${state.payouts.length} 笔交出 · ${state.offerings.length} 次供养`;
-  const when = (t) => new Date(t).toLocaleString('zh-CN');
+  const when = (t: number) => new Date(t).toLocaleString('zh-CN');
   const ss = serverStatus();
   let autoState;
-  if (ss.ok) autoState = `已自动备份：${when(ss.at)}`;
+  if (ss.ok) autoState = `已自动备份：${when(ss.at!)}`;
   else if (ss.at) autoState = <>{`⚠ 这次没能自动备份（${ss.error}），有网络时会自动再试。`}{ss.lastOkAt ? <><br />{`上次成功：${when(ss.lastOkAt)}`}</> : null}</>;
   else autoState = '还没有自动备份。';
-  const loadByCode = (e) => {
+  const loadByCode = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     loadBookFromText(new FormData(e.currentTarget).get('code'));
   };
@@ -802,7 +805,7 @@ function RestoreView() {
         <section className="card">
           <p className="muted">{autoState}</p>
           <p>用家人给的备份文件，取代这部手机现在的记录。</p>
-          <button className="btn btn-ghost btn-block" data-action="restore" onClick={() => document.getElementById('restore-file').click()}>从备份文件恢复</button>
+          <button className="btn btn-ghost btn-block" data-action="restore" onClick={() => document.getElementById('restore-file')!.click()}>从备份文件恢复</button>
           <p className="hint">{`这部手机现在有：${counts}`}</p>
         </section>
         <section className="card">

@@ -1,8 +1,8 @@
 /*
- * Builds the backup server into plain JavaScript in server/dist/, laid out as it is uploaded:
+ * Builds the backup server and the data rules into plain JavaScript in server/dist/, laid out as it is uploaded:
  *
- *   server/dist/lib/model.js              the data rules, copied as they are
- *   server/dist/lib/package.json          says model.js is CommonJS, wherever the folder ends up
+ *   server/dist/lib/model.js              the data rules, with the types removed
+ *   server/dist/lib/package.json          says model.js is an ES module, wherever the folder ends up
  *   server/dist/server/package.json       says the server's files are ES modules
  *   server/dist/server/*.js, aws/*.js     the server, with the types removed
  *
@@ -21,9 +21,7 @@ fs.rmSync(dist, { recursive: true, force: true });
 const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
 execFileSync(process.execPath, [tsc, '-p', path.join(root, 'server', 'tsconfig.build.json')], { stdio: 'inherit' });
 
-fs.mkdirSync(path.join(dist, 'lib'), { recursive: true });
-fs.copyFileSync(path.join(root, 'lib', 'model.js'), path.join(dist, 'lib', 'model.js'));
-fs.writeFileSync(path.join(dist, 'lib', 'package.json'), JSON.stringify({ private: true, type: 'commonjs' }, null, 2) + '\n');
+fs.copyFileSync(path.join(root, 'lib', 'package.json'), path.join(dist, 'lib', 'package.json'));
 fs.copyFileSync(path.join(root, 'server', 'package.json'), path.join(dist, 'server', 'package.json'));
 
 // Load what was built the way Lambda and the Pi will, and ask it one question, so a build that

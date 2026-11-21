@@ -1,24 +1,24 @@
 'use client';
 /* 善款簿 — the sheets that slide up from the bottom: one form each. */
-import { useRef, useState } from 'react';
-import { S, L, mutate, money, cur, thisYear, nav, closeSheet, confirmBox, showToast, shareText, phone } from './store';
+import { useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode } from 'react';
+import { S, L, mutate, money, cur, thisYear, nav, closeSheet, confirmBox, showToast, shareText, phone, type SheetType } from './store';
 
 /** A named control inside a form (avoids clashes like form.name). */
-const field = (form, name) => form.elements.namedItem(name);
+const field = (form: HTMLFormElement, name: string) => form.elements.namedItem(name) as HTMLInputElement;
 
 /** What was true when the sheet opened. The form keeps showing that while a save is on its way out. */
-const useOpened = (fn) => useState(fn)[0];
+const useOpened = <T,>(fn: () => T): T => useState(fn)[0];
 
-function SheetShell({ title, sub = '', error = '', onSubmit, children }) {
-  const formRef = useRef(null);
+function SheetShell({ title, sub = '', error = '', onSubmit, children }: { title: string; sub?: string; error?: string; onSubmit?: (form: HTMLFormElement) => void; children: ReactNode }) {
+  const formRef = useRef<HTMLFormElement>(null);
   // Enter saves, like 保存. A text box does that by itself. This adds the sheet itself, which has
   // the focus when an existing record opens (so Enter is not taken by ✕, closing it unsaved), and
   // the month lists. Enter in a 多行 box still starts a new line, and on a button still presses it.
-  const enterSaves = (e) => {
-    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
-    if (e.target !== e.currentTarget && e.target.tagName !== 'SELECT') return;
+  const enterSaves = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Enter' || (e as { isComposing?: boolean }).isComposing || e.keyCode === 229 || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.target !== e.currentTarget && (e.target as HTMLElement).tagName !== 'SELECT') return;
     e.preventDefault();
-    onSubmit(formRef.current);
+    onSubmit!(formRef.current!);
   };
   return (
     <>
@@ -45,7 +45,7 @@ function SheetShell({ title, sub = '', error = '', onSubmit, children }) {
   );
 }
 
-function MonthOptions({ selected, allowNone = false, noneLabel = '' }) {
+function MonthOptions({ selected, allowNone = false, noneLabel = '' }: { selected?: string | null; allowNone?: boolean; noneLabel?: string }) {
   const now = L.currentMonth();
   let from = `${thisYear() - 2}-01`;
   let to = `${thisYear() + 1}-12`;
@@ -60,7 +60,7 @@ function MonthOptions({ selected, allowNone = false, noneLabel = '' }) {
 }
 
 // ---------------------------------------------------------------- receipt sheet
-function ReceiptSheet({ memberId, month }) {
+function ReceiptSheet({ memberId, month }: { memberId: string; month: string }) {
   const { m, r } = useOpened(() => {
     const member = L.getMember(S.state, memberId);
     return { m: member, r: member ? L.receiptOf(S.state, memberId, month) : null };
@@ -80,7 +80,7 @@ function ReceiptSheet({ memberId, month }) {
     countHint = `${span}，共 ${n} 个月${each ? `，合计 ${money(each * n)}` : ''}${skipped}`;
   }
 
-  const submit = (form) => {
+  const submit = (form: HTMLFormElement) => {
     setError('');
     const amt = L.parseAmount(field(form, 'amount').value);
     if (!amt) return setError('请输入正确的金额，例如 10 或 10.50');
@@ -102,7 +102,7 @@ function ReceiptSheet({ memberId, month }) {
   };
 
   const remove = async () => {
-    const yes = await confirmBox({ title: '取消这笔收款？', message: `${m.name} ${L.monthLabel(month)} ${money(r.amount)}`, ok: '是，取消收款', danger: true });
+    const yes = await confirmBox({ title: '取消这笔收款？', message: `${m.name} ${L.monthLabel(month)} ${money(r!.amount)}`, ok: '是，取消收款', danger: true });
     if (!yes) return;
     const removed = mutate((s) => L.removeReceipt(s, memberId, month));
     closeSheet();
@@ -136,19 +136,19 @@ function ReceiptSheet({ memberId, month }) {
 }
 
 // ---------------------------------------------------------------- payout sheet
-function PayoutSheet({ fundId, id, month }) {
+function PayoutSheet({ fundId, id, month }: { fundId: string; id?: string; month?: string }) {
   const { p, notes } = useOpened(() => ({
     p: id ? L.getPayout(S.state, id) : null,
     notes: [...new Set(S.state.payouts.filter((x) => x.fundId === fundId && x.note).map((x) => x.note))].slice(-12),
   }));
-  const [mo, setMo] = useState(p ? p.month : month);
+  const [mo, setMo] = useState(p ? p.month : month!);
   const [error, setError] = useState('');
-  const amountRef = useRef(null);
+  const amountRef = useRef<HTMLInputElement>(null);
 
   const sm = L.monthSummary(S.state, fundId, mo);
   const left = sm.received - sm.paidOut + (p && p.month === mo ? p.amount : 0);
 
-  const submit = (form) => {
+  const submit = (form: HTMLFormElement) => {
     setError('');
     const amount = L.parseAmount(field(form, 'amount').value);
     if (!amount) return setError('请输入正确的金额');
@@ -156,16 +156,16 @@ function PayoutSheet({ fundId, id, month }) {
     try {
       mutate((s) => (p ? L.updatePayout(s, p.id, data) : L.addPayout(s, data)));
     } catch (e) {
-      return setError(e.message);
+      return setError((e as Error).message);
     }
     closeSheet();
     showToast(p ? '已修改' : `已记录交出 ${money(amount)}`);
   };
 
   const remove = async () => {
-    const yes = await confirmBox({ title: '删除这笔交钱记录？', message: `${L.shortDate(p.date)} ${money(p.amount)} ${p.note}`, ok: '是，删除', danger: true });
+    const yes = await confirmBox({ title: '删除这笔交钱记录？', message: `${L.shortDate(p!.date)} ${money(p!.amount)} ${p!.note}`, ok: '是，删除', danger: true });
     if (!yes) return;
-    const removed = mutate((s) => L.removePayout(s, p.id));
+    const removed = mutate((s) => L.removePayout(s, p!.id));
     closeSheet();
     showToast('已删除', { actionLabel: '撤销', action: () => mutate((s) => L.restorePayout(s, removed)) });
   };
@@ -180,7 +180,7 @@ function PayoutSheet({ fundId, id, month }) {
         <input ref={amountRef} className="input input-money" name="amount" inputMode="decimal" autoComplete="off" defaultValue={p ? L.fmtPlain(p.amount) : ''} placeholder="0" data-autofocus={p ? undefined : ''} /></label>
       <p className="hint" data-role="month-hint">
         {`${L.monthLabel(mo)}已收 ${money(sm.received)}${!p && left > 0 ? ' ' : ''}`}
-        {!p && left > 0 ? <><button type="button" className="link-btn" data-action="fill-amount" onClick={() => { amountRef.current.value = L.fmtPlain(left); }}>{`填入 ${money(left)}`}</button></> : null}
+        {!p && left > 0 ? <><button type="button" className="link-btn" data-action="fill-amount" onClick={() => { amountRef.current!.value = L.fmtPlain(left); }}>{`填入 ${money(left)}`}</button></> : null}
       </p>
       <label className="field"><span className="field-label">交给谁 / 用在哪里</span>
         <input className="input" name="note" list="payout-notes" defaultValue={p ? p.note : ''} placeholder="例如：交给 Bhante、做茶点" autoComplete="off" /></label>
@@ -199,7 +199,7 @@ function PayoutSheet({ fundId, id, month }) {
  * with the last one's names (amounts empty) and its dedication. A row left without an amount is
  * someone who did not give that day, and is not saved.
  */
-function OfferingSheet({ id }) {
+function OfferingSheet({ id }: { id: string | null }) {
   const { o, last, recipients } = useOpened(() => ({
     o: id ? L.getOffering(S.state, id) : null,
     last: L.offeringsSorted(S.state)[0] || null,
@@ -213,10 +213,10 @@ function OfferingSheet({ id }) {
     return [row(), row(), row()];
   });
   const [error, setError] = useState('');
-  const setRow = (key, patch) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const setRow = (key: number, patch: { name?: string; amount?: string }) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const total = rows.reduce((t, r) => t + (L.parseAmount(r.amount) || 0), 0);
 
-  const submit = (form) => {
+  const submit = (form: HTMLFormElement) => {
     setError('');
     const lines = [];
     for (const r of rows) {
@@ -229,16 +229,16 @@ function OfferingSheet({ id }) {
     try {
       mutate((s) => (o ? L.updateOffering(s, o.id, data) : L.addOffering(s, data)));
     } catch (e) {
-      return setError(e.message);
+      return setError((e as Error).message);
     }
     closeSheet();
     showToast(o ? '已修改' : `已记录供养 ${money(total)}`);
   };
 
   const remove = async () => {
-    const yes = await confirmBox({ title: '删除这笔供养记录？', message: `${L.shortDate(o.date)} ${o.recipient} ${money(L.offeringTotal(o))}`, ok: '是，删除', danger: true });
+    const yes = await confirmBox({ title: '删除这笔供养记录？', message: `${L.shortDate(o!.date)} ${o!.recipient} ${money(L.offeringTotal(o!))}`, ok: '是，删除', danger: true });
     if (!yes) return;
-    const removed = mutate((s) => L.removeOffering(s, o.id));
+    const removed = mutate((s) => L.removeOffering(s, o!.id));
     closeSheet();
     showToast('已删除', { actionLabel: '撤销', action: () => mutate((s) => L.restoreOffering(s, removed)) });
   };
@@ -281,14 +281,14 @@ function OfferingSheet({ id }) {
 }
 
 // ---------------------------------------------------------------- member sheets
-function MemberSheet({ fundId, id }) {
+function MemberSheet({ fundId, id }: { fundId: string; id?: string }) {
   const { m, hasReceipts } = useOpened(() => {
     const member = id ? L.getMember(S.state, id) : null;
     return { m: member, hasReceipts: !!member && L.memberHasReceipts(S.state, member.id) };
   });
   const [error, setError] = useState('');
 
-  const submit = (form) => {
+  const submit = (form: HTMLFormElement) => {
     setError('');
     const pledgeRaw = field(form, 'pledge').value.trim();
     const pledge = pledgeRaw ? L.parseAmount(pledgeRaw) : 0;
@@ -297,19 +297,19 @@ function MemberSheet({ fundId, id }) {
     try {
       mutate((s) => (m ? L.updateMember(s, m.id, data) : L.addMember(s, data)));
     } catch (e) {
-      return setError(e.message);
+      return setError((e as Error).message);
     }
     closeSheet();
     showToast(m ? '已保存' : `已添加：${data.name.trim()}`);
   };
 
   const remove = async () => {
-    const yes = await confirmBox({ title: `删除「${m.name}」？`, ok: '是，删除', danger: true });
+    const yes = await confirmBox({ title: `删除「${m!.name}」？`, ok: '是，删除', danger: true });
     if (!yes) return;
     try {
-      mutate((s) => L.deleteMember(s, m.id));
+      mutate((s) => L.deleteMember(s, m!.id));
     } catch (e) {
-      return setError(e.message);
+      return setError((e as Error).message);
     }
     closeSheet();
     showToast('已删除');
@@ -339,19 +339,19 @@ function MemberSheet({ fundId, id }) {
   );
 }
 
-function BulkSheet({ fundId }) {
+function BulkSheet({ fundId }: { fundId: string }) {
   const [text, setText] = useState('');
   const [error, setError] = useState('');
   const rows = L.parseBulkMembers(text);
 
-  const submit = (form) => {
+  const submit = (form: HTMLFormElement) => {
     setError('');
     const list = L.parseBulkMembers(field(form, 'text').value);
     if (!list.length) return setError('请先输入名单');
     try {
       mutate((s) => L.addMembersBulk(s, fundId, list, field(form, 'startMonth').value));
     } catch (e) {
-      return setError(e.message);
+      return setError((e as Error).message);
     }
     closeSheet();
     showToast(`已添加 ${list.length} 人`);
@@ -380,11 +380,11 @@ function BulkSheet({ fundId }) {
 }
 
 // ---------------------------------------------------------------- fund sheet
-function FundSheet({ id }) {
+function FundSheet({ id }: { id: string | null }) {
   const f = useOpened(() => (id ? L.getFund(S.state, id) : null));
   const [error, setError] = useState('');
 
-  const submit = (form) => {
+  const submit = (form: HTMLFormElement) => {
     setError('');
     const raw = field(form, 'opening').value.trim();
     const opening = raw ? L.parseAmount(raw) : 0;
@@ -394,7 +394,7 @@ function FundSheet({ id }) {
     try {
       created = mutate((s) => (f ? L.updateFund(s, f.id, data) : L.addFund(s, data)));
     } catch (e) {
-      return setError(e.message);
+      return setError((e as Error).message);
     }
     closeSheet().then(() => {
       if (!f) nav(`#/f/${created.id}/p`);
@@ -403,17 +403,17 @@ function FundSheet({ id }) {
   };
 
   const remove = async () => {
-    const people = L.fundMembers(S.state, f.id).length;
-    const recs = S.state.receipts.filter((r) => r.fundId === f.id).length + S.state.payouts.filter((p) => p.fundId === f.id).length;
+    const people = L.fundMembers(S.state, f!.id).length;
+    const recs = S.state.receipts.filter((r) => r.fundId === f!.id).length + S.state.payouts.filter((p) => p.fundId === f!.id).length;
     const yes = await confirmBox({
-      title: `删除整个「${f.name}」？`,
+      title: `删除整个「${f!.name}」？`,
       message: <>{`会同时删除 ${people} 人和 ${recs} 笔记录。`}<strong>删除后不能恢复</strong>（除非有备份）。</>,
       ok: '是，全部删除',
       danger: true,
     });
     if (!yes) return;
     await closeSheet();
-    mutate((s) => L.deleteFund(s, f.id));
+    mutate((s) => L.deleteFund(s, f!.id));
     nav('#/', true);
     showToast('项目已删除');
   };
@@ -435,12 +435,12 @@ function FundSheet({ id }) {
   );
 }
 
-function NoteSheet({ fundId, month }) {
+function NoteSheet({ fundId, month }: { fundId: string; month: string }) {
   const start = useOpened(() => {
     const f = L.getFund(S.state, fundId);
     return (f && f.monthNotes && f.monthNotes[month]) || '';
   });
-  const submit = (form) => {
+  const submit = (form: HTMLFormElement) => {
     mutate((s) => L.setMonthNote(s, fundId, month, field(form, 'text').value));
     closeSheet();
   };
@@ -485,7 +485,8 @@ function InstallSheet() {
   );
 }
 
-export const SHEETS = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- each sheet names its own props
+export const SHEETS: Record<SheetType, ComponentType<any>> = {
   receipt: ReceiptSheet,
   payout: PayoutSheet,
   offering: OfferingSheet,

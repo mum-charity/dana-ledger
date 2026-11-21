@@ -1,19 +1,28 @@
 // End-to-end check of 善款簿 on a phone-sized viewport using an installed browser.
 // Usage: npm install && npm run test:e2e   (Edge by default; E2E_CHANNEL=chrome uses Chrome)
 // The clock is fixed to 6 Nov 2026 so the month/balance assertions are stable.
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const { chromium } = require('playwright-core');
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { AddressInfo } from 'node:net';
+import { chromium, type ConsoleMessage, type Page, type Request as BrowserRequest } from 'playwright-core';
 
 // Serves the built app in out/ (npm run build), or another folder given as the first argument.
-const appDir = path.resolve(process.argv[2] || path.join(__dirname, '..', 'out'));
-const shotDir = path.resolve(process.argv[3] || path.join(__dirname, '..', '.e2e-out'));
+const appDir = path.resolve(process.argv[2] || path.join(import.meta.dirname, '..', 'out'));
+const shotDir = path.resolve(process.argv[3] || path.join(import.meta.dirname, '..', '.e2e-out'));
 fs.mkdirSync(shotDir, { recursive: true });
 
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.woff2': 'font/woff2', '.svg': 'image/svg+xml' };
+// What the test leaves on the page to read back: what was shared, and how often print was asked for.
+declare global {
+  interface Window {
+    __shared: string[];
+    __printed?: number;
+  }
+}
+
+const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.woff2': 'font/woff2', '.svg': 'image/svg+xml' };
 const server = http.createServer((req, res) => {
-  let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  let p = decodeURIComponent(new URL(req.url!, 'http://x').pathname);
   // Redirect /index.html to / as Cloudflare does, so a service worker that caches the redirect fails here too.
   if (p.endsWith('/index.html')) { res.writeHead(307, { Location: p.slice(0, -'index.html'.length) }); return res.end(); }
   // Stands in for the backup server, and keeps what the app sent.
@@ -27,7 +36,7 @@ const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
-      const send = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data)); };
+      const send = (status: number, data: unknown) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data)); };
       if (p === '/session') {
         const { credential, nonce } = JSON.parse(body);
         const claims = JSON.parse(Buffer.from(credential.split('.')[1], 'base64url').toString());
@@ -74,19 +83,19 @@ const server = http.createServer((req, res) => {
 // offline cache answers every page at the app's own address). It sends the browser straight back
 // with a token for whichever account the test "chose"; the stand-in server above takes it on trust.
 const fakeGoogle = http.createServer((req, res) => {
-  const q = new URL(req.url, 'http://x').searchParams;
+  const q = new URL(req.url!, 'http://x').searchParams;
   const claims = Buffer.from(JSON.stringify({ email: googleAccount, nonce: q.get('nonce'), aud: q.get('client_id') })).toString('base64url');
   res.writeHead(302, { Location: `${q.get('redirect_uri')}#id_token=h.${claims}.s&authuser=0&prompt=none` });
   res.end();
 });
 
-const backups = []; // every PUT /backup/<id> the app made
+const backups: { path: string; body: string }[] = []; // every PUT /backup/<id> the app made
 const SETUP_CODE = '5e7'.padEnd(32, 'c'); // a setup code, as the family would make
-let sharedBook = null; // the book the family published under it
-let publicAccounts = null; // what GET /public answers
+let sharedBook: string | null = null; // the book the family published under it
+let publicAccounts: typeof PUBLIC_FIXTURE | null = null; // what GET /public answers
 const FAMILY = ['mum@example.com', 'son@example.com']; // the Google accounts on the family list
 let googleAccount = 'mum@example.com'; // the account "chosen" at the stand-in for Google
-const familyVersions = []; // every version of the family's shared book, oldest first
+const familyVersions: string[] = []; // every version of the family's shared book, oldest first
 const months2026 = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}`);
 const PUBLIC_FIXTURE = {
   app: 'dana-ledger-public', version: 1, updatedAt: '2026-11-19T04:00:00.000Z', currency: 'RM', year: 2026, notice: '账目从旧簿抄入，正在核对中',
@@ -97,37 +106,37 @@ const PUBLIC_FIXTURE = {
   }],
 };
 let failures = 0;
-function check(cond, msg) {
+function check(cond: unknown, msg: string) {
   console.log((cond ? '  ok   ' : '  FAIL ') + msg);
   if (!cond) failures++;
 }
 
 (async () => {
-  await new Promise((r) => server.listen(0, r));
-  const base = `http://localhost:${server.address().port}/`;
-  await new Promise((r) => fakeGoogle.listen(0, r));
-  const googleUrl = `http://localhost:${fakeGoogle.address().port}/auth`;
+  await new Promise<void>((r) => server.listen(0, r));
+  const base = `http://localhost:${(server.address() as AddressInfo).port}/`;
+  await new Promise<void>((r) => fakeGoogle.listen(0, r));
+  const googleUrl = `http://localhost:${(fakeGoogle.address() as AddressInfo).port}/auth`;
   const browser = await chromium.launch({ channel: process.env.E2E_CHANNEL || 'msedge' });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'zh-CN', acceptDownloads: true });
   await context.clock.setFixedTime(new Date('2026-11-06T10:00:00'));
   // Keep the test's made-up records away from the real backup server.
-  const pointAtTestServer = (google) => { window.LEDGER_BACKUP_SERVER = location.origin; window.LEDGER_GOOGLE_AUTH = google; };
+  const pointAtTestServer = (google: string) => { window.LEDGER_BACKUP_SERVER = location.origin; window.LEDGER_GOOGLE_AUTH = google; };
   await context.addInitScript(pointAtTestServer, googleUrl);
   const page = await context.newPage();
-  const outside = []; // requests to anywhere but the test server
-  const isOutside = (url) => /^https?:/.test(url) && !url.startsWith(base) && !url.startsWith(googleUrl);
+  const outside: string[] = []; // requests to anywhere but the test server
+  const isOutside = (url: string) => /^https?:/.test(url) && !url.startsWith(base) && !url.startsWith(googleUrl);
   context.on('request', (r) => { if (isOutside(r.url())) outside.push(r.url()); });
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   // While offline the browser logs each backup attempt that can't connect. That one is expected;
   // the offline section checks separately that nothing else was fetched.
   let offline = false;
   // The browser reports a 404 as an error; the one the wrong setup code is meant to get is not a fault.
   // So is the public page's, before anything has been published.
-  const wrongCode404 = (m) => (m.location().url || '').endsWith('/book/' + 'd'.repeat(32)) || (!publicAccounts && (m.location().url || '').endsWith('/public'));
+  const wrongCode404 = (m: ConsoleMessage) => (m.location().url || '').endsWith('/book/' + 'd'.repeat(32)) || (!publicAccounts && (m.location().url || '').endsWith('/public'));
   page.on('console', (m) => { if (m.type() === 'error' && !(offline && m.text().includes('ERR_INTERNET_DISCONNECTED')) && !wrongCode404(m)) errors.push(m.text()); });
-  const shot = (name) => page.screenshot({ path: path.join(shotDir, name + '.png'), fullPage: true, animations: 'disabled' });
-  const text = (sel) => page.locator(sel).first().innerText();
+  const shot = (name: string) => page.screenshot({ path: path.join(shotDir, name + '.png'), fullPage: true, animations: 'disabled' });
+  const text = (sel: string) => page.locator(sel).first().innerText();
   // The ‹ › beside the month or year: two round buttons, each with its arrow in the exact middle.
   const arrowsCentred = () => page.evaluate(() => {
     const btns = [...document.querySelectorAll('.period-btn')];
@@ -329,8 +338,8 @@ function check(cond, msg) {
   await page.waitForSelector('.fund-card', { timeout: 5000 }).catch(() => {});
   check(await page.locator('.fund-card').isVisible(), 'app opens offline');
   // Offline, every screen still works and nothing is fetched except the backup attempts.
-  const failed = [];
-  const onFailed = (r) => { if (!new URL(r.url()).pathname.startsWith('/backup/')) failed.push(r.url()); };
+  const failed: string[] = [];
+  const onFailed = (r: BrowserRequest) => { if (!new URL(r.url()).pathname.startsWith('/backup/')) failed.push(r.url()); };
   page.on('requestfailed', onFailed);
   await page.click('.fund-card');
   await page.waitForSelector('.people');
@@ -360,10 +369,10 @@ function check(cond, msg) {
   await context.setOffline(false);
 
   // --- automatic backup: the records reach the backup server by themselves
-  await page.waitForFunction(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:backup-status')).ok === true; } catch (_) { return false; } }, null, { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:backup-status')!).ok === true; } catch (_) { return false; } }, null, { timeout: 15000 }).catch(() => {});
   const sent = backups[backups.length - 1];
   const deviceId = await page.evaluate(() => localStorage.getItem('dana-ledger:device-id'));
-  check(!!sent && sent.path === '/backup/' + deviceId && /^[0-9a-f]{32}$/.test(deviceId), "records were sent to this phone's folder on the backup server");
+  check(!!sent && sent.path === '/backup/' + deviceId && /^[0-9a-f]{32}$/.test(deviceId!), "records were sent to this phone's folder on the backup server");
   if (sent) {
     const bkPath = path.join(shotDir, 'backup.json');
     fs.writeFileSync(bkPath, sent.body);
@@ -394,8 +403,8 @@ function check(cond, msg) {
 
     // --- setup link: the family publishes her book under a code; an empty phone opened with the link loads it
     sharedBook = sent.body;
-    const receiptsOnPhone = () => page.evaluate(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:v1')).receipts.length; } catch (_) { return 0; } });
-    const freshPhone = async (hash) => {
+    const receiptsOnPhone = () => page.evaluate(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:v1')!).receipts.length; } catch (_) { return 0; } });
+    const freshPhone = async (hash: string) => {
       await page.evaluate(() => localStorage.clear());
       await page.goto('about:blank'); // so the app starts again, as when a link is tapped in WhatsApp
       await page.goto(base + hash);
@@ -447,16 +456,16 @@ function check(cond, msg) {
     const pub = await context.newPage();
     await pub.goto(base + '#/public');
     await pub.waitForSelector('[data-role=public-error]');
-    check((await pub.textContent('[data-role=public-error]')).includes('还没有公开的账目'), 'public page says when nothing is published yet');
+    check((await pub.textContent('[data-role=public-error]'))!.includes('还没有公开的账目'), 'public page says when nothing is published yet');
     publicAccounts = PUBLIC_FIXTURE;
     await pub.reload();
     await pub.waitForSelector('[data-role=public-fund]');
-    const shown = await pub.textContent('main');
+    const shown = (await pub.textContent('main'))!;
     check(shown.includes('公开测试项目') && shown.includes('RM 360') && shown.includes('RM 300') && shown.includes('RM 60') && shown.includes('Bao Guo Vihara') && shown.includes('12 个名字'), 'public page shows a fund with money in, handed over, on hand and to whom');
     check(shown.includes('正在核对中'), "public page shows the family's notice");
     check(!(await pub.locator('.sidebar').count()) && !shown.includes('RM 299'), "public page shows no sidebar and none of this browser's own funds");
     await pub.click('summary');
-    check((await pub.textContent('details')).includes('28/2/2026'), 'public page lists the date of each hand-over');
+    check((await pub.textContent('details'))!.includes('28/2/2026'), 'public page lists the date of each hand-over');
     await pub.setViewportSize({ width: 360, height: 740 });
     check(!(await pub.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'public page has no sideways scroll on a phone');
     await pub.screenshot({ path: path.join(shotDir, '11c-public.png'), fullPage: true });
@@ -476,14 +485,14 @@ function check(cond, msg) {
       pg.on('console', (m) => { if (m.type() === 'error' && !/ERR_INTERNET_DISCONNECTED|403/.test(m.text())) errors.push(m.text()); });
       return pg;
     };
-    const onHand = (pg) => pg.locator('.fund-card').first().innerText();
-    const stored = (pg, key) => pg.evaluate((k) => localStorage.getItem(k), key);
-    const signIn = async (pg, email) => {
+    const onHand = (pg: Page) => pg.locator('.fund-card').first().innerText();
+    const stored = (pg: Page, key: string) => pg.evaluate((k) => localStorage.getItem(k), key);
+    const signIn = async (pg: Page, email: string) => {
       googleAccount = email;
       await pg.click('[data-action=google-sign-in]');
     };
     /** Record money handed over, from the fund's month page. */
-    const handOver = async (pg, amount) => {
+    const handOver = async (pg: Page, amount: number) => {
       await pg.click('.fund-card');
       await pg.click('text=＋ 记录交钱 / 支出');
       await pg.fill('.sheet input[name=amount]', String(amount));
@@ -493,8 +502,8 @@ function check(cond, msg) {
       await pg.waitForSelector('.fund-card');
     };
     /** What the app does when it comes back into view: look for the family's changes. */
-    const comeBack = (pg) => pg.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-    const until = async (cond, what) => {
+    const comeBack = (pg: Page) => pg.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    const until = async (cond: () => boolean | Promise<boolean>, what: string) => {
       for (let i = 0; i < 150 && !(await cond()); i++) await new Promise((r) => setTimeout(r, 100));
       check(await cond(), what);
     };
@@ -518,7 +527,7 @@ function check(cond, msg) {
     await phone.screenshot({ path: path.join(shotDir, '11d-signed-in.png'), fullPage: true });
     await phone.reload();
     await phone.waitForSelector('.fund-card');
-    check(JSON.parse(await stored(phone, 'dana-ledger:session')).email === 'mum@example.com' && (await onHand(phone)).includes('RM 299'), 'she stays signed in after closing and opening the app');
+    check(JSON.parse((await stored(phone, 'dana-ledger:session'))!).email === 'mum@example.com' && (await onHand(phone)).includes('RM 299'), 'she stays signed in after closing and opening the app');
 
     // Her son signs in on his computer and sees the same book.
     const laptop = await device();
@@ -629,7 +638,7 @@ function check(cond, msg) {
   await page.waitForSelector('.sheet [name=recipient]');
   await page.fill('.sheet [name=date]', '2026-11-05');
   await page.fill('.sheet [name=recipient]', '法悦林僧团午餐');
-  const fillRow = async (i, name, amount) => {
+  const fillRow = async (i: number, name: string, amount: string) => {
     await page.locator('[data-role=oline-name]').nth(i).fill(name);
     await page.locator('[data-role=oline-amount]').nth(i).fill(amount);
   };
@@ -647,13 +656,13 @@ function check(cond, msg) {
   await shot('41-offerings');
   await page.click('[data-action=offering-new]');
   await page.waitForSelector('.sheet [name=recipient]');
-  const prefilled = await page.locator('[data-role=oline-name]').evaluateAll((els) => els.map((e) => e.value));
-  const emptyAmounts = await page.locator('[data-role=oline-amount]').evaluateAll((els) => els.every((e) => e.value === ''));
+  const prefilled = await page.locator('[data-role=oline-name]').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
+  const emptyAmounts = await page.locator('[data-role=oline-amount]').evaluateAll((els) => els.every((e) => (e as HTMLInputElement).value === ''));
   check(prefilled.join() === '吴晶晶,吴美璇,李伟铨' && emptyAmounts, 'a new offering starts with last time\'s names and no amounts');
   check((await page.inputValue('.sheet [name=dedication]')).includes('十方法界一切众生'), 'and with last time\'s dedication');
   await page.fill('.sheet [name=recipient]', 'Wat');
   await page.click('.sheet button[type=submit]');
-  await page.waitForFunction(() => document.querySelector('.form-error').innerText.includes('至少'), null, { timeout: 5000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector<HTMLElement>('.form-error')!.innerText.includes('至少'), null, { timeout: 5000 }).catch(() => {});
   check((await text('.form-error')).includes('至少'), 'saving with no amounts is refused');
   await page.keyboard.press('Escape'); // the form is scrolled to the bottom here, so close it from the keyboard
   await page.waitForSelector('.sheet', { state: 'detached' });
@@ -661,7 +670,7 @@ function check(cond, msg) {
   await page.waitForSelector('[data-action=offering-delete]');
   await page.locator('[data-role=oline-amount]').nth(0).fill('2');
   await page.click('.sheet button[type=submit]');
-  await page.waitForFunction(() => document.querySelector('.offering-row') && document.querySelector('.offering-row').innerText.includes('19.90'));
+  await page.waitForFunction(() => document.querySelector('.offering-row') && document.querySelector<HTMLElement>('.offering-row')!.innerText.includes('19.90'));
   check(true, 'changing an amount changes the total to RM 19.90');
   await page.goto(base + '#/');
   await page.waitForSelector('.offerings-card');
@@ -686,7 +695,7 @@ function check(cond, msg) {
   check(!!list && !!aside && aside.x >= list.x + list.width, 'desktop: month page has the people on the left and 交钱 on the right');
   await page.locator('.person .person-main').first().click();
   await page.waitForSelector('#sheet.open .sheet');
-  const dlg = await page.locator('.sheet').boundingBox();
+  const dlg = (await page.locator('.sheet').boundingBox())!;
   check(dlg.y > 0 && dlg.y + dlg.height < 800 && Math.abs(dlg.x + dlg.width / 2 - 640) < 2, 'desktop: the sheet is a dialog in the middle');
   await shot('30-desktop-month-sheet');
   await page.keyboard.press('Escape');
@@ -699,6 +708,291 @@ function check(cond, msg) {
   check(await arrowsCentred(), 'desktop: the year arrows sit in the middle of their round buttons');
   check(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'desktop: no horizontal page scroll');
   await page.setViewportSize({ width: 390, height: 844 });
+
+  // --- the rest of the forms, on a phone with a small book of its own: what each one refuses,
+  // changing and deleting what was recorded, and 撤销. Hand-worked: RM 100 to start, 阿福 gives 15,
+  // RM 10 is handed over, so November ends on RM 105; 阿花 prepays December (20), so RM 125 on hand.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'zh-CN' });
+    await ctx.clock.setFixedTime(new Date('2026-11-06T10:00:00'));
+    await ctx.addInitScript(pointAtTestServer, googleUrl);
+    // Sharing and printing open the phone's own sheets, which a test cannot see: keep what was asked for.
+    await ctx.addInitScript(() => {
+      window.__shared = [];
+      navigator.share = async (d) => { window.__shared.push((d && d.text) || ''); };
+      window.print = () => { window.__printed = (window.__printed || 0) + 1; };
+    });
+    ctx.on('request', (r) => { if (isOutside(r.url())) outside.push(r.url()); });
+    const pg = await ctx.newPage();
+    pg.on('pageerror', (e) => errors.push(e.message));
+    pg.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    const txt = (sel: string) => pg.locator(sel).first().innerText();
+    const save = () => pg.click('.sheet button[type=submit]');
+    const closed = () => pg.waitForSelector('.sheet', { state: 'detached' });
+    const refused = async (why: string) => {
+      await pg.waitForFunction((t) => document.querySelector<HTMLElement>('.form-error')!.innerText.includes(t), why, { timeout: 5000 }).catch(() => {});
+      return (await txt('.form-error')).includes(why) && (await pg.locator('.sheet').count()) === 1;
+    };
+    const person = (name: string) => pg.locator('.person', { hasText: name });
+    const rosterNames = () => pg.locator('.roster-item .pname').allInnerTexts();
+    const lastShared = () => pg.evaluate(() => window.__shared[window.__shared.length - 1] || '');
+
+    // a fund needs a name and a real amount
+    await pg.goto(base + '#/new');
+    await pg.click('[data-action=fund-new]');
+    await pg.waitForSelector('#sheet.open .sheet');
+    await save();
+    check(await refused('请填写项目名称'), 'a fund with no name is refused');
+    await pg.fill('.sheet [name=name]', '护法基金');
+    await pg.fill('.sheet [name=opening]', 'abc');
+    await save();
+    check(await refused('金额不对'), 'a fund whose starting money is not a number is refused');
+    await pg.fill('.sheet [name=opening]', '100');
+    await save();
+    await pg.waitForSelector('.tab[aria-current=page]:has-text("名单")');
+    check((await txt('main')).includes('还没有名单'), 'a new fund starts with an empty 名单');
+
+    // people: an empty paste is refused; then four people from this month
+    await pg.click('text=一次添加多人');
+    await pg.waitForSelector('#sheet.open .sheet');
+    await save();
+    check(await refused('请先输入名单'), 'adding many people with nothing typed is refused');
+    await pg.fill('textarea[name=text]', '阿福 10\n阿花 20\n阿明 5\n阿丁');
+    await save();
+    await closed();
+    check((await rosterNames()).join() === '阿福,阿花,阿明,阿丁', 'four people are listed in the order typed');
+
+    // ↑ ↓ change the order
+    check(await pg.locator('[aria-label="把 阿福 往上移"]').isDisabled() && await pg.locator('[aria-label="把 阿丁 往下移"]').isDisabled(), 'the first cannot go up and the last cannot go down');
+    await pg.click('[aria-label="把 阿福 往下移"]');
+    check((await rosterNames()).join() === '阿花,阿福,阿明,阿丁', '↓ moves 阿福 below 阿花');
+    await pg.click('[aria-label="把 阿福 往上移"]');
+    check((await rosterNames()).join() === '阿福,阿花,阿明,阿丁', '↑ moves 阿福 back');
+
+    // changing someone: a bad amount and a stop month before the start are refused
+    await pg.locator('.roster-item', { hasText: '阿丁' }).locator('.roster-main').click();
+    await pg.waitForSelector('#sheet.open .sheet');
+    await pg.fill('.sheet [name=pledge]', 'x');
+    await save();
+    check(await refused('每月金额不对'), 'a monthly amount that is not a number is refused');
+    await pg.fill('.sheet [name=pledge]', '');
+    await pg.selectOption('.sheet select[name=startMonth]', '2026-06');
+    await pg.selectOption('.sheet select[name=endMonth]', '2026-03');
+    await save();
+    check(await refused('结束月份不能早于开始月份'), 'stopping before starting is refused');
+    await pg.selectOption('.sheet select[name=startMonth]', '2026-01');
+    await save();
+    await closed();
+    const ding = pg.locator('.roster-item', { hasText: '阿丁' });
+    check((await ding.locator('.tag').innerText()) === '已停止' && (await ding.innerText()).includes('到2026年3月'), 'someone who stopped in March is marked 已停止');
+    await pg.click('.tab:has-text("每月")');
+    await pg.waitForSelector('.people');
+    check((await pg.locator('.person').count()) === 3 && !(await person('阿丁').count()), 'and is not on November\'s list');
+
+    // someone with no receipts can be deleted
+    await pg.click('.tab:has-text("名单")');
+    await ding.locator('.roster-main').click();
+    await pg.click('[data-action=member-delete]');
+    await pg.waitForSelector('#confirm.open .confirm');
+    check((await txt('#confirm-title')).includes('删除「阿丁」'), 'deleting someone asks first, by name');
+    await pg.click('.confirm [data-action=confirm-yes]');
+    await closed();
+    check((await rosterNames()).join() === '阿福,阿花,阿明', '阿丁 is deleted');
+
+    // a receipt: change the amount, refuse an empty one, cancel it, 撤销
+    await pg.click('.tab:has-text("每月")');
+    await pg.waitForSelector('.people');
+    await person('阿福').locator('.tick').click();
+    await pg.waitForSelector('#toast.show');
+    await person('阿福').locator('.person-main').click();
+    await pg.waitForSelector('#sheet.open .sheet');
+    check(!(await pg.locator('.sheet .stepper').count()) && (await pg.inputValue('.sheet [name=amount]')) === '10', 'a recorded receipt opens with its amount, and no months to add');
+    await pg.fill('.sheet [name=amount]', '');
+    await save();
+    check(await refused('请输入正确的金额'), 'a receipt with no amount is refused');
+    await pg.fill('.sheet [name=amount]', '15');
+    await save();
+    await closed();
+    check((await person('阿福').locator('.tick-amt').innerText()) === '15' && (await person('阿福').innerText()).includes('（每月 10）'), 'the receipt now says 15, beside the usual 10');
+    await person('阿福').locator('.person-main').click();
+    await pg.click('[data-action=receipt-delete]');
+    await pg.waitForSelector('#confirm.open .confirm');
+    check((await txt('#confirm-msg')).includes('阿福') && (await txt('#confirm-msg')).includes('RM 15'), 'cancelling a receipt asks first, with the name and amount');
+    await pg.click('.confirm [data-action=confirm-yes]');
+    await closed();
+    check(!(await person('阿福').locator('.tick.is-paid').count()) && (await txt('.summary')).includes('0 / 3 人'), 'the receipt is cancelled');
+    await pg.click('.toast-btn');
+    check((await person('阿福').locator('.tick-amt').innerText()) === '15', '撤销 brings the receipt back, still 15');
+
+    // someone with a receipt cannot be deleted
+    await pg.click('.tab:has-text("名单")');
+    await pg.locator('.roster-item', { hasText: '阿福' }).locator('.roster-main').click();
+    await pg.waitForSelector('#sheet.open .sheet');
+    check(!(await pg.locator('[data-action=member-delete]').count()) && (await txt('.sheet')).includes('所以不能删除'), 'someone who has paid cannot be deleted, and the sheet says why');
+    await pg.keyboard.press('Escape');
+    await closed();
+    await pg.click('.tab:has-text("每月")');
+    await pg.waitForSelector('.people');
+
+    // a hand-over: refused empty, filled in with one tap, changed, deleted, 撤销
+    await pg.click('text=＋ 记录交钱 / 支出');
+    await pg.waitForSelector('#sheet.open .sheet');
+    await save();
+    check(await refused('请输入正确的金额'), 'a hand-over with no amount is refused');
+    check((await txt('[data-action=fill-amount]')) === '填入 RM 15', 'the sheet offers to fill in what the month received');
+    await pg.click('[data-action=fill-amount]');
+    check((await pg.inputValue('.sheet [name=amount]')) === '15', 'one tap fills in 15');
+    await pg.fill('.sheet [name=note]', '交给 Bhante');
+    await save();
+    await closed();
+    check((await txt('.prow')).includes('交给 Bhante') && (await txt('.prow')).includes('−RM 15'), 'the hand-over is listed');
+    await pg.click('.prow');
+    await pg.waitForSelector('[data-action=payout-delete]');
+    check((await txt('#sheet-title')) === '修改交钱 / 支出' && !(await pg.locator('[data-action=fill-amount]').count()), 'tapping it opens it to be changed');
+    await pg.fill('.sheet [name=amount]', '10');
+    await save();
+    await closed();
+    check((await txt('.prow')).includes('−RM 10') && (await txt('.summary')).includes('RM 105'), 'changed to RM 10: the month ends on RM 105');
+    await pg.click('.prow');
+    await pg.click('[data-action=payout-delete]');
+    await pg.click('.confirm [data-action=confirm-yes]');
+    await closed();
+    check(!(await pg.locator('.prow').count()) && (await txt('.summary')).includes('RM 115'), 'deleted: the month ends on RM 115');
+    await pg.click('.toast-btn');
+    check((await pg.locator('.prow').count()) === 1 && (await txt('.summary')).includes('RM 105'), '撤销 brings the hand-over back: RM 105');
+
+    // 本月备注, then the month's report for WhatsApp
+    await pg.click('.note-btn');
+    await pg.fill('.sheet textarea[name=text]', 'Chiro 11/11');
+    await save();
+    await closed();
+    check((await txt('.note-text')) === 'Chiro 11/11', 'the month\'s note is shown on the page');
+    await pg.click('text=分享本月记录');
+    const report = await lastShared();
+    check(['【护法基金】2026年11月', '已收 1/3 人：RM 15', '未收：阿花、阿明', '交出 6/11：RM 10（交给 Bhante）', '上月结余：RM 100', '本月结余：RM 105', '备注：Chiro 11/11'].every((line) => report.includes(line)), 'the shared report has the month\'s numbers, who has not paid, and the note');
+    await pg.screenshot({ path: path.join(shotDir, '50-month-edited.png'), fullPage: true, animations: 'disabled' });
+
+    // a month before anyone joined
+    await pg.click('.period-btn[aria-label=上个月]');
+    check((await txt('.month-list')).includes('2026年10月还没有名单'), 'a month before anyone joined says there is no list');
+    await pg.click('text=去添加名单');
+    await pg.waitForSelector('.tab[aria-current=page]:has-text("名单")');
+    check(true, 'and 去添加名单 goes to 名单');
+
+    // year table: a cell records a receipt; the note has a row; other years; print
+    await pg.click('.tab:has-text("全年表")');
+    await pg.waitForSelector('.grid');
+    check((await pg.locator('.note-row td').nth(10).innerText()) === 'Chiro 11/11', 'the year table shows the note under November');
+    await pg.click('[aria-label="阿花 2026年12月 未收"]');
+    await pg.waitForSelector('#sheet.open .sheet');
+    check((await pg.inputValue('.sheet [name=amount]')) === '20', 'an empty cell opens the receipt sheet with her monthly amount');
+    await save();
+    await closed();
+    check((await pg.locator('[aria-label="阿花 2026年12月 已收 20"]').innerText()) === '20' && (await txt('.year-totals')).includes('RM 125'), 'the cell shows 20 and the year ends on RM 125');
+    await pg.click('text=打印 / 存成 PDF');
+    check((await pg.evaluate(() => window.__printed)) === 1, '打印 asks the browser to print');
+    await pg.click('.period-btn[aria-label=上一年]');
+    check((await txt('.period-title')) === '2025年' && (await txt('main')).includes('2025年还没有名单'), '‹ goes to 2025, which has no list');
+    await pg.click('.period-btn[aria-label=下一年]');
+    await pg.waitForSelector('.grid');
+    await pg.click('[aria-label="2026年11月 交出"]');
+    await pg.waitForSelector('.people');
+    check(pg.url().includes('/m/2026-11') && (await txt('.summary')).includes('另有 RM 20 是预先付了'), 'the 交出 row opens that month, which notes the RM 20 paid ahead');
+
+    // the fund itself: renamed, its starting money changed
+    await pg.click('[data-action=fund-edit]');
+    await pg.waitForSelector('#sheet.open .sheet');
+    await pg.fill('.sheet [name=name]', '护法基金 2026');
+    await pg.fill('.sheet [name=opening]', '200');
+    await save();
+    await closed();
+    check((await txt('.topbar-title')) === '护法基金 2026' && (await txt('.summary')).includes('RM 205'), 'the fund is renamed, and RM 100 more to start with shows in the month');
+    await pg.click('[data-action=back]');
+    await pg.waitForSelector('.fund-card');
+    check((await txt('.fund-card')).includes('护法基金 2026') && (await txt('.fund-card')).includes('RM 225'), 'home shows the new name and RM 225 on hand');
+
+    // a second fund, deleted again
+    await pg.click('[data-action=fund-new]');
+    await pg.fill('.sheet [name=name]', '临时项目');
+    await save();
+    await pg.waitForSelector('.tab[aria-current=page]:has-text("名单")');
+    await pg.click('[data-action=fund-edit]');
+    await pg.click('[data-action=fund-delete]');
+    await pg.waitForSelector('#confirm.open .confirm');
+    check((await txt('#confirm-msg')).includes('0 人和 0 笔记录') && (await txt('#confirm-msg')).includes('不能恢复'), 'deleting a fund says what goes with it');
+    await pg.click('.confirm [data-action=confirm-no]');
+    check((await pg.locator('.sheet').count()) === 1, 'saying no leaves the fund open');
+    await pg.click('[data-action=fund-delete]');
+    await pg.click('.confirm [data-action=confirm-yes]');
+    await pg.waitForSelector('#toast:has-text("项目已删除")');
+    await pg.waitForSelector('.fund-card');
+    check((await pg.locator('.fund-card').count()) === 1 && !(await txt('main')).includes('临时项目'), 'saying yes deletes it and goes home, with the other fund untouched');
+    await pg.click('.fund-card');
+    await pg.waitForSelector('.people');
+    await pg.goto(base + '#/f/not-a-fund/m/2026-11');
+    await pg.waitForSelector('.people', { state: 'detached' });
+    check(pg.url().includes('not-a-fund') && (await pg.locator('.fund-card').count()) === 1 && (await txt('.topbar-title')) === '善款簿', 'the address of a fund that is gone shows home, not a month page');
+
+    // 供养: shared, deleted, 撤销
+    await pg.click('[data-action=offerings-open]');
+    await pg.click('[data-action=offering-new]');
+    await pg.waitForSelector('.sheet [name=recipient]');
+    await pg.fill('.sheet [name=recipient]', '僧团午餐');
+    await pg.locator('[data-role=oline-amount]').nth(0).fill('5');
+    await save();
+    check(await refused('请填写名字'), 'an amount with no name beside it is refused');
+    await pg.locator('[data-role=oline-name]').nth(0).fill('阿福');
+    await pg.locator('[data-role=oline-amount]').nth(1).fill('x');
+    await save();
+    check(await refused('金额不对'), 'an amount that is not a number is refused');
+    await pg.locator('.oline-x').nth(1).click();
+    check((await pg.locator('.oline').count()) === 2, '✕ takes a row away');
+    await save();
+    await pg.waitForSelector('.offering-row');
+    await pg.locator('.offering-row').click();
+    await pg.click('[data-action=offering-share]');
+    const offered = await lastShared();
+    check(offered.includes('【供养 僧团午餐】6/11/2026') && offered.includes('阿福：5') && offered.includes('合计：RM 5'), 'an offering is shared with its date, who gave and the total');
+    await pg.click('[data-action=offering-delete]');
+    await pg.click('.confirm [data-action=confirm-yes]');
+    await closed();
+    check(!(await pg.locator('.offering-row').count()), 'the offering is deleted');
+    await pg.click('.toast-btn');
+    check((await pg.locator('.offering-row').count()) === 1, '撤销 brings it back');
+
+    // 设置: the currency, and the way to the public accounts
+    await pg.goto(base + '#/settings');
+    await pg.fill('input[name=currency]', 'SGD');
+    await pg.click('.inline-form button[type=submit]');
+    await pg.waitForSelector('#toast:has-text("已保存")');
+    await pg.click('[data-action=open-public]');
+    await pg.waitForSelector('[data-role=public-fund]');
+    check(!(await pg.locator('[data-role=family-sign-in]').count()) && (await pg.locator('[data-action=back]').count()) === 1, '看公开账目 opens the public accounts, with 返回 and no sign-in card');
+    await pg.click('[data-action=back]');
+    await pg.waitForSelector('[data-role=account-card]');
+    await pg.goto(base + '#/');
+    await pg.waitForSelector('.fund-card');
+    check((await txt('.fund-card')).includes('SGD 225'), 'money is shown in the new currency');
+    await pg.reload();
+    await pg.waitForSelector('.fund-card');
+    check((await txt('.fund-card')).includes('SGD 225') && (await txt('.fund-card')).includes('护法基金 2026'), 'all of it survives a reload');
+
+    // 恢复记录: a file that is not a backup changes nothing
+    await pg.goto(base + '#/restore');
+    await pg.waitForSelector('[data-action=restore]');
+    const had = await txt('main');
+    check(had.includes('1 个项目 · 3 人 · 2 笔收款 · 1 笔交出 · 1 次供养'), '恢复记录 counts what is on the phone');
+    const notJson = path.join(shotDir, 'not-a-backup.txt');
+    const notLedger = path.join(shotDir, 'not-a-ledger.json');
+    fs.writeFileSync(notJson, 'hello');
+    fs.writeFileSync(notLedger, '{"recipes":[]}');
+    await pg.setInputFiles('#restore-file', notJson);
+    await pg.waitForSelector('#toast:has-text("打不开这个文件")');
+    await pg.setInputFiles('#restore-file', notLedger);
+    await pg.waitForSelector('#toast:has-text("这不是善款簿的备份文件")');
+    check(!(await pg.locator('.confirm').count()) && (await txt('main')) === had, 'a file that is not a backup is refused, and the records are unchanged');
+    await ctx.close();
+  }
 
   check(outside.length === 0, 'nothing was sent outside the test server' + (outside.length ? ': ' + outside.join(' | ') : ''));
   check(errors.length === 0, 'no console errors' + (errors.length ? ': ' + errors.join(' | ') : ''));

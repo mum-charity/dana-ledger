@@ -1,6 +1,6 @@
 /*
  * 善款簿 service worker: makes the app open without internet.
- * scripts/build.js fills in VERSION (from package.json) and ASSETS (every file in out/) and
+ * scripts/build.mts fills in VERSION (from package.json) and ASSETS (every file in out/) and
  * writes the result to out/sw.js, so phones pick up the new files after every build.
  * It only caches the app's own files. Records live in localStorage and are never touched here.
  */

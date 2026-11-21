@@ -1,6 +1,7 @@
 {
   // Turns the server into JavaScript in server/dist/, for AWS Lambda and for a Node older than 24.
+  // The data rules (lib/model.ts) come along because the server imports them.
   "extends": "./tsconfig.json",
   "compilerOptions": { "noEmit": false },
-  "include": ["./*.ts", "./aws/*.ts", "../lib/model.d.ts"]
+  "include": ["./*.ts", "./aws/*.ts"]
 }

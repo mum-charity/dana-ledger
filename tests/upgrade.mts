@@ -1,24 +1,25 @@
 // Checks that a phone already using the plain-JavaScript app (1.6.0) moves to this build safely:
 // same records, same folder on the backup server, and it still opens offline afterwards.
-// Usage: npm run build && node tests/upgrade.js     (E2E_CHANNEL=chrome uses Chrome instead of Edge)
-const http = require('http');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { execFileSync } = require('child_process');
-const { chromium } = require('playwright-core');
+// Usage: npm run build && node tests/upgrade.mts     (E2E_CHANNEL=chrome uses Chrome instead of Edge)
+import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import type { AddressInfo } from 'node:net';
+import { chromium } from 'playwright-core';
 
 const OLD_COMMIT = '16eb683'; // 1.6.0, the last version before Next.js
-const repo = path.join(__dirname, '..');
+const repo = path.join(import.meta.dirname, '..');
 const newDir = path.join(repo, 'out');
 const oldDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dana-ledger-old-'));
 execFileSync('sh', ['-c', `git -C "${repo}" archive ${OLD_COMMIT} | tar -x -C "${oldDir}"`]);
 
 let appDir = oldDir;
-const backups = [];
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8' };
+const backups: { path: string; body: string }[] = [];
+const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8' };
 const server = http.createServer((req, res) => {
-  let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  let p = decodeURIComponent(new URL(req.url!, 'http://x').pathname);
   if (p.endsWith('/index.html')) { res.writeHead(307, { Location: p.slice(0, -'index.html'.length) }); return res.end(); }
   if (p.startsWith('/backup/')) {
     let body = '';
@@ -34,22 +35,22 @@ const server = http.createServer((req, res) => {
 });
 
 let failures = 0;
-function check(cond, msg) {
+function check(cond: unknown, msg: string) {
   console.log((cond ? '  ok   ' : '  FAIL ') + msg);
   if (!cond) failures++;
 }
 
 (async () => {
-  await new Promise((r) => server.listen(0, r));
-  const base = `http://localhost:${server.address().port}/`;
+  await new Promise<void>((r) => server.listen(0, r));
+  const base = `http://localhost:${(server.address() as AddressInfo).port}/`;
   const browser = await chromium.launch({ channel: process.env.E2E_CHANNEL || 'msedge' });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'zh-CN' });
   await context.addInitScript(() => { window.LEDGER_BACKUP_SERVER = location.origin; });
   const page = await context.newPage();
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const text = (sel) => page.locator(sel).first().innerText();
-  const backedUp = () => page.waitForFunction(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:backup-status')).ok === true && !localStorage.getItem('dana-ledger:backup-pending'); } catch (_) { return false; } }, null, { timeout: 15000 });
+  const text = (sel: string) => page.locator(sel).first().innerText();
+  const backedUp = () => page.waitForFunction(() => { try { return JSON.parse(localStorage.getItem('dana-ledger:backup-status')!).ok === true && !localStorage.getItem('dana-ledger:backup-pending'); } catch (_) { return false; } }, null, { timeout: 15000 });
   const version = async () => {
     await page.click('text=设置');
     const v = await text('.about');
@@ -90,7 +91,7 @@ function check(cond, msg) {
   check(true, 'old app says 善款簿已更新');
   await page.click('.toast-btn');
   await page.waitForSelector('.fund-card');
-  const pkgVersion = require(path.join(repo, 'package.json')).version;
+  const pkgVersion = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version;
   check((await version()).includes(pkgVersion), `now on the new app, ${pkgVersion}`);
   check((await text('.fund-card')) === cardBefore, 'home card is the same as before');
   const after = await page.evaluate(() => ({ records: localStorage.getItem('dana-ledger:v1'), device: localStorage.getItem('dana-ledger:device-id') }));
