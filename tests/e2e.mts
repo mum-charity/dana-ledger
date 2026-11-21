@@ -752,6 +752,15 @@ function check(cond: unknown, msg: string) {
   await shot('32-desktop-year');
   check(await arrowsCentred(), 'desktop: the year arrows sit in the middle of their round buttons');
   check(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'desktop: no horizontal page scroll');
+  await page.locator('.sidebar .side-link', { hasText: '全部项目' }).click();
+  await page.waitForSelector('.fund-card');
+  const rights = await page.evaluate(() => ['.fund-grid', '.page-home > [data-action=fund-new]', '.offerings-card'].map((s) => Math.round(document.querySelector(s)!.getBoundingClientRect().right)));
+  check(rights.every((r) => r === rights[0]), 'desktop: the home page\'s blocks all end on the same right edge');
+  check(!(await page.locator('[data-action=install]').count()), 'desktop: no 添加到手机主屏幕 button');
+  await shot('33-desktop-home');
+  await page.locator('.sidebar .side-link', { hasText: 'Bhante 医疗费用' }).click();
+  await page.click('.tab:has-text("全年表")');
+  await page.waitForSelector('.grid');
   await page.setViewportSize({ width: 390, height: 844 });
 
   // --- the rest of the forms, on a phone with a small book of its own: what each one refuses,
