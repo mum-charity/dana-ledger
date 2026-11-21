@@ -139,14 +139,14 @@ function FundHeader({ fund, tab, month }: { fund: Fund; tab: 'month' | 'year' | 
     ['people', '名单', `#/f/${fund.id}/p`],
   ];
   return (
-    <>
+    <div className="fund-head">
       <Topbar title={fund.name} back right={<button className="topbar-btn" data-action="fund-edit" onClick={() => openSheet('fund', { id: fund.id })}>编辑</button>} />
       <nav className="tabs" aria-label="页面">
         {tabs.map(([key, label, to]) => (
           <button key={key} className="tab" aria-current={key === tab ? 'page' : 'false'} onClick={goReplace(to)}>{label}</button>
         ))}
       </nav>
-    </>
+    </div>
   );
 }
 
@@ -489,7 +489,7 @@ function YearView({ fund, year }: { fund: Fund; year: number }) {
     const first = el.querySelector<HTMLElement>('thead th[data-month]');
     const target = el.querySelector<HTMLElement>(`thead th[data-month="${L.addMonths(now, -1)}"]`);
     el.scrollLeft = first && target ? target.offsetLeft - first.offsetLeft : 0;
-  }, [fund.id, year, now]);
+  }, [fund.id, year, now, g.rows.length > 0]); // the last one: the table appears when the first person is added
 
   const table = g.rows.length ? (
     <div className="grid-wrap" ref={wrap} tabIndex={0} aria-label={`${year}年 全年表，可以左右滑动`}>

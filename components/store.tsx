@@ -663,8 +663,11 @@ function isInstalled() {
   return installedNow || window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 }
 export function canOfferInstall() {
-  // Only on a phone or tablet: desktop Chrome offers an install prompt too, but the button says 手机主屏幕.
-  return !isInstalled() && (phone.ios || phone.android);
+  // Only on a phone or tablet: desktop Chrome offers an install prompt too, but the button says
+  // 手机主屏幕. An Android phone set to "desktop site" does not say Android, so a prompt on a
+  // touch-first device counts as well (a laptop with a touch screen is still mouse-first).
+  const touchFirst = window.matchMedia('(pointer: coarse)').matches;
+  return !isInstalled() && (phone.ios || phone.android || (!!installPrompt && touchFirst));
 }
 export async function doInstall() {
   if (!installPrompt) return openSheet('install');

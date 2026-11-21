@@ -315,6 +315,21 @@ function check(cond: unknown, msg: string) {
   });
   console.log('  year table opens at:', JSON.stringify(opensAt));
   check(opensAt.scrolled && opensAt.novInView && (Math.abs(opensAt.oct) <= 1 || opensAt.atEnd), 'the year table opens with last month and this month in view');
+  // November only shows that the table went to its end. In June it must stop with 5月 beside the names.
+  await context.clock.setFixedTime(new Date('2026-06-06T10:00:00'));
+  await page.reload();
+  await page.waitForSelector('.grid');
+  const june = await page.evaluate(() => {
+    const el = document.querySelector('.grid-wrap')!;
+    const names = document.querySelector('.grid thead .name-col')!.getBoundingClientRect();
+    const col = (m: string) => document.querySelector(`.grid thead th[data-month="${m}"]`)!.getBoundingClientRect();
+    return { may: Math.round(col('2026-05').left - names.right), juneInView: col('2026-06').right <= el.getBoundingClientRect().right + 1, atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 };
+  });
+  console.log('  in June it opens at:', JSON.stringify(june));
+  check(Math.abs(june.may) <= 1 && june.juneInView && !june.atEnd, 'in June the year table opens with 5月 beside the names and 6月 in view');
+  await context.clock.setFixedTime(new Date('2026-11-06T10:00:00'));
+  await page.reload();
+  await page.waitForSelector('.grid');
   const cellOf = (name: string, mo: number) => page.locator('tbody tr', { hasText: name }).locator('td').nth(mo - 1);
   check((await cellOf('Tan Ah Kow', 4).locator('.due-box').count()) === 1, 'a month still owed has an empty box, not only a colour');
   const open = page.locator('tbody tr').filter({ hasNot: page.locator('.gpledge') }).first();
@@ -653,6 +668,16 @@ function check(cond: unknown, msg: string) {
     return { scroll: document.documentElement.scrollWidth > window.innerWidth, inside: tiles.every((t) => t.right <= card.right), oneLine };
   });
   check(!narrow.scroll && narrow.inside && narrow.oneLine, 'extra-large text on a 360px phone: the summary tiles stay inside their card');
+  const head = await page.evaluate(() => {
+    const title = document.querySelector('.topbar-title')!;
+    const size = (sel: string) => parseFloat(getComputedStyle(document.querySelector(sel)!).fontSize);
+    const bar = document.querySelector('.topbar')!.getBoundingClientRect();
+    const tabs = document.querySelector('.tabs')!.getBoundingClientRect();
+    // A cut-off third line would add a whole line's height; tall glyphs alone add a few pixels.
+    return { sh: title.scrollHeight, ch: title.clientHeight, whole: title.scrollHeight < title.clientHeight + size('.topbar-title') / 2, bigger: size('.topbar-title') > size('.pname'), under: tabs.top >= bar.bottom - 1 };
+  });
+  console.log('  特大 header:', JSON.stringify(head));
+  check(head.whole && head.bigger && head.under, 'extra-large text on a 360px phone: the fund\'s name shows in full at full size, with the tabs under it');
   await shot('12b-month-xlarge-360');
   await page.setViewportSize({ width: 390, height: 844 });
 
