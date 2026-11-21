@@ -663,7 +663,8 @@ function isInstalled() {
   return installedNow || window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 }
 export function canOfferInstall() {
-  return !(isInstalled() || !(phone.ios || phone.android || installPrompt));
+  // Only on a phone or tablet: desktop Chrome offers an install prompt too, but the button says 手机主屏幕.
+  return !isInstalled() && (phone.ios || phone.android);
 }
 export async function doInstall() {
   if (!installPrompt) return openSheet('install');

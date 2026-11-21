@@ -115,6 +115,10 @@ b, strong { font-weight: 700; }
 }
 .topbar > :last-child { justify-self: end; }
 .topbar-btn:active { background: var(--primary-soft); }
+/* At 特大 a fund's name is cut short between 返回 and 编辑 on a phone: give it the room. */
+html[data-font="xlarge"] .topbar-title { font-size: 1rem; }
+html[data-font="xlarge"] .topbar-btn { padding: 0 6px; }
+@media (max-width: 959px) { html[data-font="xlarge"] .topbar { grid-template-columns: minmax(3.4rem, auto) 1fr minmax(3.4rem, auto); } }
 
 .tabs {
   position: sticky;
@@ -254,14 +258,16 @@ b, strong { font-weight: 700; }
 .chevron { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .period-btn:active { background: var(--surface-2); }
 
-.summary { gap: 12px; }
+.summary { gap: 10px; }
 .summary-main { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "label count" "big big"; row-gap: 2px; }
 .summary-label { grid-area: label; color: var(--muted); font-weight: 600; }
 .summary-count { grid-area: count; color: var(--muted); font-weight: 600; }
 .summary-big { grid-area: big; font-size: 2.1rem; font-weight: 800; line-height: 1.15; }
-.summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
-.summary-grid div { background: var(--surface-2); border-radius: var(--radius-sm); padding: 8px 10px; }
-.summary-grid dt, .year-totals dt { font-size: 0.8rem; color: var(--muted); }
+/* Three across, equal, while each fits its label and amount on one line; if one cannot (特大 on a
+   narrow phone, or large amounts), the last goes to a row of its own. The page never scrolls sideways. */
+.summary-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.summary-grid div { flex: 1 1 0; min-width: max-content; background: var(--surface-2); border-radius: var(--radius-sm); padding: 6px 10px; }
+.summary-grid dt, .year-totals dt { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
 .summary-grid dd, .year-totals dd { margin: 0; font-weight: 700; font-size: 1rem; white-space: nowrap; }
 .summary-total { background: var(--primary-soft) !important; }
 .summary-total dd { color: var(--primary); }
@@ -434,7 +440,8 @@ b, strong { font-weight: 700; }
   justify-content: center;
 }
 .grid td.paid { background: var(--paid-soft); color: var(--paid); }
-.grid td.due { background: var(--due-soft); }
+.grid td.due { background: var(--due-soft); color: var(--danger); }
+.due-box { width: 14px; height: 14px; border-radius: 4px; border: 2px solid currentColor; opacity: .75; }
 .grid td.off { color: var(--muted); }
 .grid td.off button { font-weight: 400; }
 .grid td.total { font-weight: 800; padding: 0 8px; background: var(--surface-2); }
@@ -647,14 +654,20 @@ select.input {
 
   /* The side list has 设置, so the home page's own button would be a second one. */
   .topbar-settings { display: none; }
-  .topbar { padding-left: 24px; padding-right: 24px; }
+  /* The pages are columns on the left, so the title starts on their left edge too, with 编辑 beside
+     it. Centred over the whole window it sat to the right of everything under it. */
+  .topbar { grid-template-columns: auto auto 1fr; gap: 8px; padding-left: 20px; padding-right: 24px; }
+  .topbar-title { text-align: left; }
+  .topbar > span:first-child { width: 4px; } /* no 返回: the title lines up with the page */
+  .topbar > :last-child { justify-self: start; }
   .tabs { max-width: 26rem; margin: 0; padding-left: 32px; padding-right: 0; }
   .page { max-width: 46rem; margin: 0; padding: 18px 32px 110px; }
-  .page-home, .page-month { max-width: 68rem; }
+  .page-month { max-width: 68rem; }
   .page-wide { max-width: none; }
-  .fund-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); align-items: start; }
-  .page-home > .btn-block, .page-home > .card.empty { max-width: 30rem; }
-  .page-month > .period-nav { max-width: 26rem; }
+  /* Home is one column: the fund cards share its width, and every block ends on the same right edge. */
+  .fund-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); align-items: start; }
+  /* ‹ 2026年11月 › sits on the left with its arrows beside it, on the month page and the year table alike. */
+  .period-nav { grid-template-columns: 56px minmax(9.5rem, auto) 56px; justify-content: start; }
   .page-month > .link-btn { align-self: flex-start; }
 
   .month-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem); gap: 24px; align-items: start; }
