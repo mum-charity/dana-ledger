@@ -88,7 +88,7 @@ Everything is TypeScript: the app, the data rules, the backup server, the script
 
 ## Deploy (Cloudflare)
 
-**The copy that 1.5.0 was deployed from has never been found.** Another deploy from that copy would replace 2.0.0 with 1.5.0. See [Current status](#current-status).
+**The copy that 1.5.0 was deployed from has never been found.** Another deploy from that copy would replace the live version with 1.5.0. See [Current status](#current-status).
 
 The app at https://mum.franklee.asia/ is a static-assets-only Cloudflare Worker, set up in `wrangler.jsonc`.
 
