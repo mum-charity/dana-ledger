@@ -45,7 +45,7 @@ Since 1.4.0 the app sends records to the backup server by itself whenever there 
 Still to do:
 
 - Try the app on a real iPhone and Android phone. Every 2.x version has only been checked in desktop Chrome at a phone's size, and the [iPhone app](#iphone-app) only in the simulator. Look rather than type: anything entered at mum.franklee.asia goes to the real backup server, and a phone signed in with Google is editing the family's shared book.
-- Check that mum's own phone backs up. A full book reached the AWS backup server on 19 Nov, but the server cannot tell which phone sent it. On her phone, tap the version line in 设置 five times: 恢复记录 should say 已自动备份 with a recent time.
+- Check that mum's own phone backs up. A full book reached the AWS backup server on 19 Nov, but the server cannot tell which phone sent it. On her phone, tap the version line in 设置 five times: 恢复记录 should say 已自动备份, with a time just after the last thing she entered (a backup is sent only after a change, so a quiet week shows an older time).
 - Find where 1.5.0 was deployed from. The live app went from 1.4.0 to 1.5.0 on 7–8 Nov from a copy outside this repo, and another deploy from there would replace anything deployed from here.
 - Stop the unused backup service on the Raspberry Pi: [issue #8](https://github.com/mum-charity/dana-ledger/issues/8). Backups have gone to AWS (an S3 bucket, see [server/aws/](server/aws/README.md)) since 19 Nov, and the Pi can only be reached over SSH from its own Wi-Fi.
 - The iPhone app cannot join the family's shared book yet, because Google refuses to sign anyone in inside an app's web view. See [iPhone app](#iphone-app).
