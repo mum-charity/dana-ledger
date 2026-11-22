@@ -17,9 +17,9 @@ The interface is Simplified Chinese with large text, and amounts are in RM (you 
 
 Last checked on 20 Nov 2026.
 
-https://mum.franklee.asia/ runs version 2.5.1, deployed from the `dev` branch on 20 Nov 2026. 2.0.0 was the 1.5.0 app rebuilt with Next.js and React, plus a desktop layout and without the demo. **The 2.x versions were checked in desktop Chrome at a phone's size, not yet on a real phone.**
+https://mum.franklee.asia/ runs version 2.5.2, deployed from the `dev` branch on 21 Nov 2026. 2.0.0 was the 1.5.0 app rebuilt with Next.js and React, plus a desktop layout and without the demo. **The 2.x versions were checked in desktop Chrome at a phone's size, not yet on a real phone.**
 
-2.5.2 is on `dev` and **not deployed yet**. On a phone: this year's 全年表 opens with last month and this month beside the names, not at 1月; the three boxes under 本月已收 show bare numbers (no RM) and no longer run off the side at 特大; a long fund name takes a second line in the top bar and is no longer cut short; the 「收到钱后…」 hint goes away once someone is ticked that month, so more names fit; a month still owed has an empty box in 全年表 as well as its red colour, and someone with 金额不固定 has no month marked as owed. On a wide screen: the title sits on the left beside 返回, the home page is one column, the ‹ › arrows sit beside the month or year, and 添加到手机主屏幕 is offered only on a phone or tablet.
+2.5.2 went live on 21 Nov 2026. On a phone: this year's 全年表 opens with last month and this month beside the names, not at 1月; the three boxes under 本月已收 show bare numbers (no RM) and no longer run off the side at 特大; a long fund name takes a second line in the top bar and is no longer cut short; the 「收到钱后…」 hint goes away once someone is ticked that month, so more names fit; a month still owed has an empty box in 全年表 as well as its red colour, and someone with 金额不固定 has no month marked as owed. On a wide screen: the title sits on the left beside 返回, the home page is one column, the ‹ › arrows sit beside the month or year, and 添加到手机主屏幕 is offered only on a phone or tablet.
 
 2.5.1 centres the ‹ › arrows beside the month and the year: they are drawn now, not typed, because the font put them below the middle of their round buttons.
 
@@ -27,7 +27,7 @@ https://mum.franklee.asia/ runs version 2.5.1, deployed from the `dev` branch on
 
 | Copy | Version | Backup |
 |---|---|---|
-| https://mum.franklee.asia/ | 2.5.1 | Automatic, to the family's backup server |
+| https://mum.franklee.asia/ | 2.5.2 | Automatic, to the family's backup server |
 | Branch `dev` | 2.5.2 | Automatic |
 | Branch `main` | 2.0.1 | Automatic |
 
