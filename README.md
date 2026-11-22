@@ -15,7 +15,7 @@ The interface is Simplified Chinese with large text, and amounts are in RM (you 
 
 ## Current status
 
-Last checked on 20 Nov 2026.
+Last checked on 22 Nov 2026.
 
 https://mum.franklee.asia/ runs version 2.5.2, deployed from the `dev` branch on 21 Nov 2026. 2.0.0 was the 1.5.0 app rebuilt with Next.js and React, plus a desktop layout and without the demo. **The 2.x versions were checked in desktop Chrome at a phone's size, not yet on a real phone.**
 
@@ -44,10 +44,11 @@ Since 1.4.0 the app sends records to the backup server by itself whenever there 
 
 Still to do:
 
-- Try 2.0.1 on a real iPhone and Android phone. The tests run in desktop Chrome at a phone's size.
+- Try the app on a real iPhone and Android phone. Every 2.x version has only been checked in desktop Chrome at a phone's size, and the [iPhone app](#iphone-app) only in the simulator. Look rather than type: anything entered at mum.franklee.asia goes to the real backup server, and a phone signed in with Google is editing the family's shared book.
+- Check that mum's own phone backs up. A full book reached the AWS backup server on 19 Nov, but the server cannot tell which phone sent it. On her phone, tap the version line in 设置 five times: 恢复记录 should say 已自动备份, with a time just after the last thing she entered (a backup is sent only after a change, so a quiet week shows an older time).
 - Find where 1.5.0 was deployed from. The live app went from 1.4.0 to 1.5.0 on 7–8 Nov from a copy outside this repo, and another deploy from there would replace anything deployed from here.
-- The backup server's log shows only two small test backups, on 7 and 8 Nov, and none since. Uploading works, but check that her real book arrives once she is using the app.
-- Backups moved from the Pi to AWS (an S3 bucket) on 19 Nov: the app's backup address now points at the server in [server/aws/](server/aws/README.md). The Pi's backup service is still running but unused; stopping it is [issue #8](https://github.com/mum-charity/dana-ledger/issues/8).
+- Stop the unused backup service on the Raspberry Pi: [issue #8](https://github.com/mum-charity/dana-ledger/issues/8). Backups have gone to AWS (an S3 bucket, see [server/aws/](server/aws/README.md)) since 19 Nov, and the Pi can only be reached over SSH from its own Wi-Fi.
+- The iPhone app cannot join the family's shared book yet, because Google refuses to sign anyone in inside an app's web view. See [iPhone app](#iphone-app).
 
 ## Where the data lives
 
@@ -87,7 +88,7 @@ Everything is TypeScript: the app, the data rules, the backup server, the script
 
 ## Deploy (Cloudflare)
 
-**The copy that 1.5.0 was deployed from has never been found.** Another deploy from that copy would replace 2.0.0 with 1.5.0. See [Current status](#current-status).
+**The copy that 1.5.0 was deployed from has never been found.** Another deploy from that copy would replace the live version with 1.5.0. See [Current status](#current-status).
 
 The app at https://mum.franklee.asia/ is a static-assets-only Cloudflare Worker, set up in `wrangler.jsonc`.
 
