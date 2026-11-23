@@ -153,6 +153,20 @@ test('moveMember reorders within a fund', () => {
   assert.equal(L.moveMember(s, a.id, -1), false);
 });
 
+test('moveMemberTo puts a member at a place in the list', () => {
+  const { s, fund, a, b, c } = setup();
+  const ids = () => L.fundMembers(s, fund.id).map((m) => m.id);
+  assert.equal(L.moveMemberTo(s, a.id, 2), true);
+  assert.deepEqual(ids(), [b.id, c.id, a.id]);
+  assert.equal(L.moveMemberTo(s, a.id, 0), true);
+  assert.deepEqual(ids(), [a.id, b.id, c.id]);
+  assert.equal(L.moveMemberTo(s, b.id, 1), false, 'already there');
+  assert.equal(L.moveMemberTo(s, b.id, 99), true, 'past the end is the end');
+  assert.deepEqual(ids(), [a.id, c.id, b.id]);
+  assert.equal(L.moveMemberTo(s, 'nobody', 0), false);
+  assert.deepEqual(L.fundMembers(s, fund.id).map((m) => m.order), [1, 2, 3]);
+});
+
 test('bulk paste parses names and monthly amounts', () => {
   const rows = L.parseBulkMembers(
     ['1 陈美玲 10', '2. 林志明、黄淑芬 20', '3、李国强，张丽华 20', 'Tan Ah Kow 合家 10', 'Wong Mei Ling RM3', '王小华', '已故刘德明 3/1/2026往生', '', '  郑家合家   5  '].join('\n')

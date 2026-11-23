@@ -407,6 +407,18 @@ function moveMember(s: State, id: string, dir: number): boolean {
   [list[i].order, list[j].order] = [list[j].order, list[i].order];
   return true;
 }
+/** Put a member at place `to` (0 is the top) in the fund's list. Returns true if it moved. */
+function moveMemberTo(s: State, id: string, to: number): boolean {
+  const m = getMember(s, id);
+  if (!m || !Number.isInteger(to)) return false;
+  const list = fundMembers(s, m.fundId);
+  const from = list.findIndex((x) => x.id === id);
+  to = Math.min(list.length - 1, Math.max(0, to));
+  if (to === from) return false;
+  list.splice(to, 0, ...list.splice(from, 1));
+  list.forEach((x, k) => (x.order = k + 1));
+  return true;
+}
 
 /**
  * Parse pasted lines like "陈美玲 10", "3. 林志明、黄淑芬 20", "Wong Mei Ling RM3".
@@ -686,7 +698,7 @@ const L = {
   membersForMonth, payoutsFor, balanceThrough, cashOnHand, prepaidAfter, monthSummary, yearGrid,
   // mutations
   addFund, updateFund, deleteFund, setMonthNote,
-  addMember, updateMember, deleteMember, moveMember, parseBulkMembers, addMembersBulk,
+  addMember, updateMember, deleteMember, moveMember, moveMemberTo, parseBulkMembers, addMembersBulk,
   setReceipt, removeReceipt, restoreReceipt, nextUnpaidMonths, prepay,
   addPayout, updatePayout, removePayout, restorePayout,
   // offerings
