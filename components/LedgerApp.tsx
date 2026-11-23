@@ -601,9 +601,131 @@ function YearView({ fund, year }: { fund: Fund; year: number }) {
 }
 
 // ================================================================ people list
+/** One drag of a row in 名单. The row positions are measured once, when the drag starts, in page coordinates. */
+type RosterDrag = {
+  id: string;
+  ids: string;
+  pointerId: number;
+  handle: HTMLElement;
+  list: HTMLElement;
+  items: HTMLElement[];
+  tops: number[];
+  heights: number[];
+  from: number;
+  to: number;
+  startY: number;
+  startScroll: number;
+  lastY: number;
+  headBottom: number;
+  raf: number;
+};
+const DRAG_EDGE = 72; // px from the bottom of the screen, or from under the fund's top bar, where a drag starts scrolling the page
+
 function PeopleView({ fund }: { fund: Fund }) {
   const list = L.fundMembers(S.state, fund.id);
   const now = L.currentMonth();
+  const drag = useRef<RosterDrag | null>(null);
+
+  // Move the dragged row under the finger, and slide the rows it has passed out of its way.
+  const place = (d: RosterDrag) => {
+    const last = d.items.length - 1;
+    const h = d.heights[d.from];
+    const min = d.tops[0] - d.tops[d.from];
+    const max = d.tops[last] + d.heights[last] - (d.tops[d.from] + h);
+    const dy = Math.min(max, Math.max(min, d.lastY - d.startY + window.scrollY - d.startScroll));
+    const top = d.tops[d.from] + dy;
+    let to = d.from;
+    d.items.forEach((el, j) => {
+      if (j === d.from) return;
+      const mid = d.tops[j] + d.heights[j] / 2;
+      let shift = 0;
+      if (j > d.from && top + h > mid) {
+        shift = -h;
+        to = Math.max(to, j);
+      } else if (j < d.from && top < mid) {
+        shift = h;
+        to = Math.min(to, j);
+      }
+      el.style.transform = shift ? `translateY(${shift}px)` : '';
+    });
+    d.items[d.from].style.transform = `translateY(${dy}px)`;
+    d.to = to;
+  };
+  // Holding the row near the top or bottom of the screen scrolls the page, so a long list can be crossed.
+  const tick = () => {
+    const d = drag.current;
+    if (!d) return;
+    const top = d.headBottom + DRAG_EDGE;
+    const over = d.lastY < top ? d.lastY - top : Math.max(0, d.lastY - (window.innerHeight - DRAG_EDGE));
+    if (over) window.scrollBy(0, Math.max(-18, Math.min(18, Math.round(over / 4))));
+    place(d); // every frame, so the row also keeps up when the page is scrolled some other way (a mouse wheel)
+    d.raf = requestAnimationFrame(tick);
+  };
+  const endDrag = (commit: boolean) => {
+    const d = drag.current;
+    if (!d) return;
+    drag.current = null;
+    cancelAnimationFrame(d.raf);
+    for (const el of d.items) el.style.transform = '';
+    delete d.items[d.from].dataset.dragging;
+    delete d.list.dataset.sorting;
+    if (d.handle.hasPointerCapture(d.pointerId)) d.handle.releasePointerCapture(d.pointerId);
+    // If the list changed under the drag (a sync from another phone), the measured places are stale: drop nothing.
+    if (commit && d.to !== d.from && L.fundMembers(S.state, fund.id).map((m) => m.id).join() === d.ids) {
+      mutate((s) => L.moveMemberTo(s, d.id, d.to));
+    }
+  };
+  useEffect(() => () => endDrag(false), []); // leaving the screen mid-drag drops nothing
+
+  const startDrag = (e: React.PointerEvent<HTMLButtonElement>, id: string) => {
+    if (drag.current || e.button !== 0) return;
+    const handle = e.currentTarget;
+    const row = handle.closest('li');
+    const ol = row?.parentElement;
+    if (!row || !ol) return;
+    e.preventDefault(); // no text selection while dragging with a mouse
+    handle.focus({ preventScroll: true });
+    handle.setPointerCapture(e.pointerId);
+    const items = Array.from(ol.children) as HTMLElement[];
+    const rects = items.map((el) => el.getBoundingClientRect());
+    const from = items.indexOf(row);
+    drag.current = {
+      id,
+      ids: list.map((m) => m.id).join(),
+      pointerId: e.pointerId,
+      handle,
+      list: ol,
+      items,
+      tops: rects.map((r) => r.top + window.scrollY),
+      heights: rects.map((r) => r.height),
+      from,
+      to: from,
+      startY: e.clientY,
+      startScroll: window.scrollY,
+      lastY: e.clientY,
+      // the fund's bar and tabs stay stuck to the top of the screen and cover the rows under them
+      headBottom: Math.max(0, document.querySelector('.fund-head')?.getBoundingClientRect().bottom ?? 0),
+      raf: requestAnimationFrame(tick),
+    };
+    ol.dataset.sorting = '';
+    row.dataset.dragging = '';
+  };
+  const onDragMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    d.lastY = e.clientY;
+    place(d);
+  };
+  // ↑ ↓ on the handle move the person one place, for a keyboard or a screen reader. Esc drops a drag where it began.
+  const onHandleKey = (e: React.KeyboardEvent<HTMLButtonElement>, id: string) => {
+    if (e.key === 'Escape') return endDrag(false);
+    if (drag.current || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    mutate((s) => L.moveMember(s, id, e.key === 'ArrowUp' ? -1 : 1));
+    requestAnimationFrame(() => handle.focus()); // the row is moved in the page, which can drop the focus
+  };
+
   return (
     <>
       <FundHeader fund={fund} tab="people" />
@@ -615,6 +737,7 @@ function PeopleView({ fund }: { fund: Fund }) {
         {list.length ? (
           <>
             <p className="section-label">{`共 ${list.length} 人`}</p>
+            {list.length > 1 ? <p className="hint">要换顺序，按住右边的六个点，上下拖动。</p> : null}
             <ol className="roster">
               {list.map((m, i) => {
                 const ended = m.endMonth && m.endMonth < now;
@@ -629,10 +752,26 @@ function PeopleView({ fund }: { fund: Fund }) {
                         {m.note ? <span className="psub">{m.note}</span> : null}
                       </span>
                     </button>
-                    <span className="order-btns">
-                      <button className="order-btn" onClick={() => mutate((s) => L.moveMember(s, m.id, -1))} aria-label={`把 ${m.name} 往上移`} disabled={i === 0}>↑</button>
-                      <button className="order-btn" onClick={() => mutate((s) => L.moveMember(s, m.id, 1))} aria-label={`把 ${m.name} 往下移`} disabled={i === list.length - 1}>↓</button>
-                    </span>
+                    {list.length > 1 ? (
+                      <button
+                        type="button"
+                        className="drag-handle"
+                        aria-label={`移动 ${m.name}：按住拖动，或按上下键`}
+                        onPointerDown={(e) => startDrag(e, m.id)}
+                        onPointerMove={onDragMove}
+                        onPointerUp={() => endDrag(true)}
+                        onPointerCancel={() => endDrag(false)}
+                        onLostPointerCapture={() => endDrag(false)}
+                        onKeyDown={(e) => onHandleKey(e, m.id)}
+                        onContextMenu={(e) => e.preventDefault()}
+                      >
+                        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="currentColor">
+                          <circle cx="8.5" cy="6" r="1.8" /><circle cx="15.5" cy="6" r="1.8" />
+                          <circle cx="8.5" cy="12" r="1.8" /><circle cx="15.5" cy="12" r="1.8" />
+                          <circle cx="8.5" cy="18" r="1.8" /><circle cx="15.5" cy="18" r="1.8" />
+                        </svg>
+                      </button>
+                    ) : null}
                   </li>
                 );
               })}

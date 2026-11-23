@@ -840,12 +840,57 @@ function check(cond: unknown, msg: string) {
     await closed();
     check((await rosterNames()).join() === '阿福,阿花,阿明,阿丁', 'four people are listed in the order typed');
 
-    // ↑ ↓ change the order
-    check(await pg.locator('[aria-label="把 阿福 往上移"]').isDisabled() && await pg.locator('[aria-label="把 阿丁 往下移"]').isDisabled(), 'the first cannot go up and the last cannot go down');
-    await pg.click('[aria-label="把 阿福 往下移"]');
-    check((await rosterNames()).join() === '阿花,阿福,阿明,阿丁', '↓ moves 阿福 below 阿花');
-    await pg.click('[aria-label="把 阿福 往上移"]');
-    check((await rosterNames()).join() === '阿福,阿花,阿明,阿丁', '↑ moves 阿福 back');
+    // dragging a row by its handle changes the order; ↑ ↓ on the handle do the same from a keyboard
+    const rosterRow = (name: string) => pg.locator('.roster-item', { hasText: name });
+    const centre = async (loc: ReturnType<typeof rosterRow>) => {
+      const b = (await loc.boundingBox())!;
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    };
+    const grab = async (name: string, onto: string) => {
+      const from = await centre(rosterRow(name).locator('.drag-handle'));
+      const to = await centre(rosterRow(onto));
+      await pg.mouse.move(from.x, from.y);
+      await pg.mouse.down();
+      await pg.mouse.move(from.x, to.y, { steps: 8 });
+    };
+    await grab('阿福', '阿明');
+    check((await rosterNames()).join() === '阿福,阿花,阿明,阿丁' && (await pg.locator('.roster-item[data-dragging]').count()) === 1, 'nothing is saved while a row is still held');
+    await pg.mouse.up();
+    check((await rosterNames()).join() === '阿花,阿明,阿福,阿丁', 'dragging 阿福 onto 阿明 puts 阿福 third');
+    check((await pg.locator('.roster-item .num').allInnerTexts()).join() === '1,2,3,4' && (await pg.locator('.roster-item[style*=transform], [data-dragging], [data-sorting]').count()) === 0, 'the rows are numbered again and nothing is left mid-drag');
+    await grab('阿福', '阿花');
+    await pg.mouse.up();
+    check((await rosterNames()).join() === '阿福,阿花,阿明,阿丁', 'dragging 阿福 to the top puts 阿福 first again');
+    await grab('阿丁', '阿福');
+    await pg.keyboard.press('Escape');
+    await pg.mouse.up();
+    check((await rosterNames()).join() === '阿福,阿花,阿明,阿丁', 'Esc during a drag leaves the order alone');
+    // a finger: without touch-action: none on the handle the browser scrolls the page and cancels the drag
+    {
+      const cdp = await ctx.newCDPSession(pg);
+      const finger = (type: 'touchStart' | 'touchMove' | 'touchEnd', x: number, y: number) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+      const from = await centre(rosterRow('阿丁').locator('.drag-handle'));
+      const to = await centre(rosterRow('阿花'));
+      await finger('touchStart', from.x, from.y);
+      for (let k = 1; k <= 8; k++) await finger('touchMove', from.x, from.y + ((to.y - from.y) * k) / 8);
+      await finger('touchEnd', from.x, to.y);
+      await cdp.detach();
+      check((await rosterNames()).join() === '阿福,阿丁,阿花,阿明', 'a finger drags 阿丁 up to second');
+      await grab('阿丁', '阿明');
+      await pg.mouse.up();
+    }
+    await pg.reload();
+    await pg.waitForSelector('.roster');
+    check((await rosterNames()).join() === '阿福,阿花,阿明,阿丁', 'the dragged order is saved');
+    const fuHandle = rosterRow('阿福').locator('.drag-handle');
+    await fuHandle.focus();
+    await pg.keyboard.press('ArrowUp');
+    check((await rosterNames()).join() === '阿福,阿花,阿明,阿丁', '↑ on the first person does nothing');
+    await pg.keyboard.press('ArrowDown');
+    check((await rosterNames()).join() === '阿花,阿福,阿明,阿丁', '↓ on the handle moves 阿福 below 阿花');
+    await pg.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.includes('阿福'));
+    await pg.keyboard.press('ArrowUp');
+    check((await rosterNames()).join() === '阿福,阿花,阿明,阿丁', '↑ on the handle moves 阿福 back');
 
     // changing someone: a bad amount and a stop month before the start are refused
     await pg.locator('.roster-item', { hasText: '阿丁' }).locator('.roster-main').click();
